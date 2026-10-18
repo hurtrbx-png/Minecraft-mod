@@ -1,0 +1,15 @@
+{
+	"schemaVersion": 1,
+	"id": "giantess-test",
+	"version": "1.0.0",
+	"name": "Giantess tests",
+	"environment": "*",
+	"entrypoints": {
+		"fabric-gametest": [
+			"io.github.hurtrbxpng.giantess.test.GiantessGameTest"
+		],
+		"fabric-client-gametest": [
+			"io.github.hurtrbxpng.giantess.test.GiantessClientGameTest"
+		]
+	}
+}
