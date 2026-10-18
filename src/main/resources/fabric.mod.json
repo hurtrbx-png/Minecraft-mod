@@ -1,0 +1,29 @@
+{
+	"schemaVersion": 1,
+	"id": "giantess",
+	"version": "${version}",
+	"name": "Giantess",
+	"description": "A rare giant who wanders the world as a living landmark.",
+	"authors": [
+		"hurtrbx"
+	],
+	"contact": {
+		"sources": "https://github.com/hurtrbx-png/Minecraft-mod"
+	},
+	"license": "MIT",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"io.github.hurtrbxpng.giantess.Giantess"
+		],
+		"client": [
+			"io.github.hurtrbxpng.giantess.client.GiantessClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~26.3",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
