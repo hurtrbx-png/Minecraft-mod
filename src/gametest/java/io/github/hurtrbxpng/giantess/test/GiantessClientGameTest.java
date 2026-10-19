@@ -1,13 +1,16 @@
 package io.github.hurtrbxpng.giantess.test;
 
 import io.github.hurtrbxpng.giantess.client.effects.CameraShake;
+import io.github.hurtrbxpng.giantess.config.GiantessConfig;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
+import io.github.hurtrbxpng.giantess.entity.ai.Footing;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
@@ -189,6 +192,8 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			LOGGER.info("Soak server average tick time: {} ms", "%.1f".formatted(msPerTick));
 			for (int i = 0; i < count; i++) {
 				if (longestStill[i] > MAX_STILL_TICKS || travelled[i] < MIN_TRAVEL) {
+					int index = i;
+					LOGGER.info("Stuck giantess {}: {}", i, server.computeOnServer(minecraftServer -> describeSurroundings(soakGiantesses(minecraftServer.overworld()).get(index))));
 					throw new AssertionError("giantess " + i + " got stuck: still for " + longestStill[i] + " ticks, travelled " + travelled[i]);
 				}
 			}
@@ -203,5 +208,27 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 
 	private static List<Vec3> soakPositions(TestServerContext server) {
 		return server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream().map(GiantessEntity::position).toList());
+	}
+
+	/** Where she stands, how much water is over her feet, and how many of 64 directions the stroll check would accept. */
+	private static String describeSurroundings(GiantessEntity giantess) {
+		ServerLevel level = (ServerLevel) giantess.level();
+		BlockPos feet = giantess.blockPosition();
+		int water = 0;
+		while (water < 64 && level.getFluidState(feet.above(water)).is(FluidTags.WATER)) {
+			water++;
+		}
+		Footing footing = new Footing(giantess);
+		double maxWater = GiantessConfig.get().movement.maxWadeDepth * giantess.getBbHeight();
+		int accepted = 0;
+		for (int k = 0; k < 64; k++) {
+			double angle = k * Math.PI / 32.0;
+			Vec3 candidate = giantess.position().add(Math.cos(angle) * 24.0, 0.0, Math.sin(angle) * 24.0);
+			if (footing.checkStraightWalk(candidate, giantess.maxUpStep(), maxWater) != null) {
+				accepted++;
+			}
+		}
+		return "at %s on %s, water over feet %d (limit %.1f), %d of 64 directions accepted, onGround %s"
+			.formatted(giantess.position(), level.getBlockState(feet.below()), water, maxWater, accepted, giantess.onGround());
 	}
 }
