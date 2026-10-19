@@ -29,7 +29,9 @@ public final class GiantessConfig {
 	/** Hitbox and model size relative to a normal humanoid. */
 	public Size size = new Size();
 	public double maxHealth = 500.0;
-	public double movementSpeed = 0.25;
+	public double movementSpeed = 0.3;
+	/** How she walks; see {@link Movement}. */
+	public Movement movement = new Movement();
 	/** How far away, in chunks, players receive her; the server view distance still caps it. */
 	public int trackingRangeChunks = 16;
 
@@ -56,6 +58,28 @@ public final class GiantessConfig {
 				case COLOSSAL -> colossal;
 			};
 		}
+	}
+
+	public static class Movement {
+		/** Tallest ledge she walks up, per unit of scale (a normal mob steps 0.6); capped at 10 blocks. */
+		public double stepHeightPerScale = 0.6;
+		/** Multiplier on movementSpeed while wandering. */
+		public double wanderSpeedModifier = 1.0;
+		/** Distance range, in blocks, of each stroll. */
+		public int wanderMinDistance = 16;
+		public int wanderMaxDistance = 48;
+		/** Pause between strolls, in ticks (20 ticks = 1 second). */
+		public int idleMinTicks = 100;
+		public int idleMaxTicks = 400;
+		/** How fast she turns, in degrees per tick. */
+		public float turnSpeedDegrees = 4.0F;
+		/** Deepest water she wades into, as a fraction of her height. */
+		public double maxWadeDepth = 0.4;
+		/** A stroll is abandoned when she covers less than stuckMinProgress blocks in stuckCheckTicks ticks. */
+		public int stuckCheckTicks = 60;
+		public double stuckMinProgress = 1.0;
+		/** How far away, in blocks, she notices and looks at players. */
+		public float lookAtPlayerRange = 48.0F;
 	}
 
 	public static GiantessConfig get() {
@@ -100,6 +124,21 @@ public final class GiantessConfig {
 		maxHealth = clamp("maxHealth", maxHealth, 1.0, 1024.0);
 		movementSpeed = clamp("movementSpeed", movementSpeed, 0.01, 2.0);
 		trackingRangeChunks = (int) clamp("trackingRangeChunks", trackingRangeChunks, 2, 64);
+		if (movement == null) {
+			movement = new Movement();
+		}
+		Movement m = movement;
+		m.stepHeightPerScale = clamp("movement.stepHeightPerScale", m.stepHeightPerScale, 0.0, 2.0);
+		m.wanderSpeedModifier = clamp("movement.wanderSpeedModifier", m.wanderSpeedModifier, 0.1, 4.0);
+		m.wanderMinDistance = (int) clamp("movement.wanderMinDistance", m.wanderMinDistance, 4, 256);
+		m.wanderMaxDistance = (int) clamp("movement.wanderMaxDistance", m.wanderMaxDistance, m.wanderMinDistance, 256);
+		m.idleMinTicks = (int) clamp("movement.idleMinTicks", m.idleMinTicks, 0, 24000);
+		m.idleMaxTicks = (int) clamp("movement.idleMaxTicks", m.idleMaxTicks, m.idleMinTicks, 24000);
+		m.turnSpeedDegrees = clamp("movement.turnSpeedDegrees", m.turnSpeedDegrees, 0.5F, 90.0F);
+		m.maxWadeDepth = clamp("movement.maxWadeDepth", m.maxWadeDepth, 0.0, 1.0);
+		m.stuckCheckTicks = (int) clamp("movement.stuckCheckTicks", m.stuckCheckTicks, 10, 1200);
+		m.stuckMinProgress = clamp("movement.stuckMinProgress", m.stuckMinProgress, 0.0, 16.0);
+		m.lookAtPlayerRange = clamp("movement.lookAtPlayerRange", m.lookAtPlayerRange, 0.0F, 128.0F);
 	}
 
 	private static float clamp(String key, float value, float min, float max) {
