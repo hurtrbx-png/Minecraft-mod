@@ -87,6 +87,8 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 
 	private static float walkAndMeasureShake(ClientGameTestContext context, TestServerContext server, int fromX, int toX, String screenshot) {
 		server.runCommand("kill @e[type=giantess:giantess]");
+		server.runCommand("forceload add %d -16 %d 16".formatted(Math.min(fromX, toX) - 16, Math.max(fromX, toX) + 16));
+		context.waitTicks(40);
 		server.runCommand("summon giantess:giantess %d -60 0 {Rotation:[-90.0f,0.0f]}".formatted(fromX));
 		context.waitTicks(20);
 		server.computeOnServer(minecraftServer -> {
