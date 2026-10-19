@@ -168,6 +168,12 @@ public class GiantessGameTest {
 		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 1.2, 0) == null, "water deeper than allowed should be refused");
 		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 1.2, 1) != null, "shallow water should be wadeable");
 
+		Vec3 fromWater = context.absoluteVec(new Vec3(4.5, 1.0, 3.5));
+		Vec3 shore = context.absoluteVec(new Vec3(1.5, 2.0, 3.5));
+		giantess.setPos(fromWater);
+		context.assertTrue(new Footing(giantess).checkStraightWalk(shore, 1.2, 0) != null, "she should wade out of water deeper than allowed");
+		giantess.setPos(context.absoluteVec(new Vec3(1.5, 2.0, 3.5)));
+
 		context.setBlock(middle.below(), Blocks.LAVA);
 		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 10, 10) == null, "lava should always be refused");
 		context.succeed();
