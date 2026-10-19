@@ -122,10 +122,10 @@ public class GiantessGameTest {
 		Zombie zombie = context.spawn(EntityTypes.ZOMBIE, 5, 2, 5);
 		BlockPos pos = context.absolutePos(new BlockPos(6, 2, 6));
 		for (BlockState plant : List.of(Blocks.OAK_LOG.defaultBlockState(), Blocks.OAK_LEAVES.defaultBlockState())) {
-			context.assertTrue(plant.getCollisionShape(level, pos, CollisionContext.of(giantess)).isEmpty(), plant + " should not block her");
-			context.assertTrue(!plant.getCollisionShape(level, pos, CollisionContext.of(zombie)).isEmpty(), plant + " should still block other mobs");
+			context.assertTrue(CollisionContext.of(giantess).getCollisionShape(plant, level, pos).isEmpty(), plant + " should not block her");
+			context.assertTrue(!CollisionContext.of(zombie).getCollisionShape(plant, level, pos).isEmpty(), plant + " should still block other mobs");
 		}
-		context.assertTrue(!Blocks.STONE.defaultBlockState().getCollisionShape(level, pos, CollisionContext.of(giantess)).isEmpty(),
+		context.assertTrue(!CollisionContext.of(giantess).getCollisionShape(Blocks.STONE.defaultBlockState(), level, pos).isEmpty(),
 			"stone should block her");
 		context.assertTrue(giantess.getNavigation().createPath(pos, 0) == null, "vanilla A* should be off for her");
 		float expectedStep = Math.min(10.0F, (float) GiantessConfig.get().movement.stepHeightPerScale * giantess.getScale());

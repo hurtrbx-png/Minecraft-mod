@@ -31,6 +31,7 @@ public final class Footing {
 	private final CollisionContext context;
 	private final Long2ObjectOpenHashMap<Column> columns = new Long2ObjectOpenHashMap<>();
 	private final BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+	private final int headY;
 
 	/** Top of the ground in one block column, how much water stands on it, and whether there is lava. */
 	private record Column(double groundY, int waterDepth, boolean lava) {
@@ -40,6 +41,7 @@ public final class Footing {
 		this.giantess = giantess;
 		this.level = giantess.level();
 		this.context = CollisionContext.of(giantess);
+		this.headY = Mth.floor(giantess.getY() + giantess.getBbHeight());
 	}
 
 	/**
@@ -108,7 +110,8 @@ public final class Footing {
 		if (!level.hasChunk(SectionPos.blockToSectionCoord(x), SectionPos.blockToSectionCoord(z))) {
 			return null;
 		}
-		int top = level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1;
+		// Start at her head: ceilings and overhangs above her don't matter, terrain taller than her is a wall.
+		int top = Math.min(level.getHeight(Heightmap.Types.MOTION_BLOCKING, x, z) - 1, headY);
 		// Never stroll into chunks where entities are frozen: she would stop mid-stride until a player comes near.
 		if (level instanceof ServerLevel serverLevel && !serverLevel.isPositionEntityTicking(cursor.set(x, top, z))) {
 			return null;
@@ -119,7 +122,7 @@ public final class Footing {
 		for (int y = top; y >= bottom; y--) {
 			cursor.set(x, y, z);
 			BlockState state = level.getBlockState(cursor);
-			VoxelShape shape = state.getCollisionShape(level, cursor, context);
+			VoxelShape shape = context.getCollisionShape(state, level, cursor);
 			if (!shape.isEmpty()) {
 				return new Column(y + shape.max(Direction.Axis.Y), waterDepth, lava);
 			}
