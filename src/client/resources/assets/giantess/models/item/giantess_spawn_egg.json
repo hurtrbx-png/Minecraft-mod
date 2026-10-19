@@ -1,0 +1,6 @@
+{
+	"parent": "minecraft:item/generated",
+	"textures": {
+		"layer0": "giantess:item/giantess_spawn_egg"
+	}
+}

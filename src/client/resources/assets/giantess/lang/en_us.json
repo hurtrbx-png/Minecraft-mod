@@ -1,4 +1,6 @@
 {
 	"modmenu.nameTranslation.giantess": "Giantess",
-	"modmenu.descriptionTranslation.giantess": "A rare giant who wanders the world as a living landmark."
+	"modmenu.descriptionTranslation.giantess": "A rare giant who wanders the world as a living landmark.",
+	"entity.giantess.giantess": "Giantess",
+	"item.giantess.giantess_spawn_egg": "Giantess Spawn Egg"
 }
