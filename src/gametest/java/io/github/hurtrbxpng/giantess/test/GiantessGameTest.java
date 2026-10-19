@@ -3,6 +3,7 @@ package io.github.hurtrbxpng.giantess.test;
 import io.github.hurtrbxpng.giantess.Giantess;
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
+import io.github.hurtrbxpng.giantess.entity.ai.Footing;
 import io.github.hurtrbxpng.giantess.registry.ModEntities;
 import io.github.hurtrbxpng.giantess.registry.ModItems;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
@@ -17,7 +18,12 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.attributes.RangedAttribute;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.SpawnEggItem;
+import net.minecraft.world.entity.EntityTypes;
+import net.minecraft.world.entity.monster.zombie.Zombie;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -106,6 +112,64 @@ public class GiantessGameTest {
 		float before = giantess.getHealth();
 		giantess.hurtServer(level, sources.generic(), 10.0F);
 		context.assertTrue(giantess.getHealth() == before - 10.0F, "ordinary damage should still hurt her");
+		context.succeed();
+	}
+
+	@GameTest
+	public void walksThroughTreesButNotWalls(GameTestHelper context) {
+		ServerLevel level = context.getLevel();
+		GiantessEntity giantess = context.spawn(ModEntities.GIANTESS, 2, 2, 2);
+		Zombie zombie = context.spawn(EntityTypes.ZOMBIE, 5, 2, 5);
+		BlockPos pos = context.absolutePos(new BlockPos(6, 2, 6));
+		for (BlockState plant : List.of(Blocks.OAK_LOG.defaultBlockState(), Blocks.OAK_LEAVES.defaultBlockState())) {
+			context.assertTrue(plant.getCollisionShape(level, pos, CollisionContext.of(giantess)).isEmpty(), plant + " should not block her");
+			context.assertTrue(!plant.getCollisionShape(level, pos, CollisionContext.of(zombie)).isEmpty(), plant + " should still block other mobs");
+		}
+		context.assertTrue(!Blocks.STONE.defaultBlockState().getCollisionShape(level, pos, CollisionContext.of(giantess)).isEmpty(),
+			"stone should block her");
+		context.assertTrue(giantess.getNavigation().createPath(pos, 0) == null, "vanilla A* should be off for her");
+		float expectedStep = Math.min(10.0F, (float) GiantessConfig.get().movement.stepHeightPerScale * giantess.getScale());
+		context.assertTrue(giantess.maxUpStep() == expectedStep, "step height should follow her scale");
+		context.succeed();
+	}
+
+	/** Shrinks her to normal size so a straight walk fits the 8x8 test area, then checks what the terrain probe accepts. */
+	@GameTest
+	public void strollCheckRejectsLedgesWaterAndLava(GameTestHelper context) {
+		for (int x = 0; x < 8; x++) {
+			for (int z = 0; z < 8; z++) {
+				context.setBlock(x, 1, z, Blocks.STONE);
+			}
+		}
+		GiantessEntity giantess = context.spawn(ModEntities.GIANTESS, new Vec3(1.5, 2.0, 3.5));
+		giantess.setNoAi(true);
+		giantess.getAttribute(Attributes.SCALE).setBaseValue(1.0);
+		giantess.refreshDimensions();
+		Vec3 target = context.absoluteVec(new Vec3(6.5, 2.0, 3.5));
+		BlockPos middle = new BlockPos(4, 2, 3);
+
+		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 0.6, 0) != null, "flat ground should be walkable");
+
+		context.setBlock(middle, Blocks.STONE);
+		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 0.6, 0) == null, "a 1-block ledge is above a 0.6 step");
+		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 1.2, 0) != null, "a 1-block ledge is within a 1.2 step");
+
+		for (int y = 2; y < 6; y++) {
+			context.setBlock(middle.atY(y), Blocks.OAK_LOG);
+		}
+		context.setBlock(middle.atY(6), Blocks.OAK_LEAVES);
+		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 0.6, 0) != null, "she should walk through a tree");
+
+		for (int y = 2; y < 7; y++) {
+			context.setBlock(middle.atY(y), Blocks.AIR);
+		}
+		context.setBlock(middle.below(), Blocks.WATER);
+		context.setBlock(middle.below(2), Blocks.STONE);
+		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 1.2, 0) == null, "water deeper than allowed should be refused");
+		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 1.2, 1) != null, "shallow water should be wadeable");
+
+		context.setBlock(middle.below(), Blocks.LAVA);
+		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 10, 10) == null, "lava should always be refused");
 		context.succeed();
 	}
 }

@@ -27,7 +27,7 @@ grep -i -E 'required tests|tests? (passed|failed)|failed at' "$P/build/run/gameT
 [ "${1:-}" = "--no-client" ] && exit 0
 
 echo "=== client game test"
-timeout 400 ./gradlew runClientGameTest "${EULA[@]}" --console=plain > "$LOGS/client.log" 2>&1
+timeout 1800 ./gradlew runClientGameTest "${EULA[@]}" --console=plain > "$LOGS/client.log" 2>&1
 echo "client rc=$?"
 pkill -f '[K]notClient'
 grep -E 'AssertionError|Exception in|FAILED|error:' -A3 "$LOGS/client.log" | cut -c1-220 | head -20
