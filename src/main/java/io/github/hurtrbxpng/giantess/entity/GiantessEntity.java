@@ -5,6 +5,7 @@ import io.github.hurtrbxpng.giantess.entity.ai.GiantessMoveControl;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessNavigation;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessWanderGoal;
 import io.github.hurtrbxpng.giantess.registry.ModTags;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
@@ -18,6 +19,8 @@ import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
 /**
  * The giant. Her size comes from the vanilla scale attribute, so the hitbox, eye height and
@@ -28,7 +31,29 @@ public class GiantessEntity extends PathfinderMob {
 	/** Vanilla caps the step height attribute at 10 blocks; the same cap applies here. */
 	private static final float MAX_STEP_HEIGHT = 10.0F;
 
+	/** Entity events carrying a footfall to the clients: the foot that came down is the left or the right one. */
+	public static final byte EVENT_STEP_LEFT = 100;
+	public static final byte EVENT_STEP_RIGHT = 101;
+
+	/** Client-side hook for footstep effects; the client sets it, a dedicated server never does. */
+	@FunctionalInterface
+	public interface FootstepListener {
+		void onFootstep(GiantessEntity giantess, boolean rightFoot);
+	}
+
+	private static FootstepListener footstepListener = (giantess, rightFoot) -> {
+	};
+
+	public static void setFootstepListener(FootstepListener listener) {
+		footstepListener = listener;
+	}
+
 	private GiantessWanderGoal wanderGoal;
+	private double strideProgress;
+	private double lastStrideX = Double.NaN;
+	private double lastStrideZ;
+	private boolean nextFootRight;
+	private int footstepCount;
 
 	public GiantessEntity(EntityType<? extends GiantessEntity> type, Level level) {
 		super(type, level);
@@ -83,6 +108,65 @@ public class GiantessEntity extends PathfinderMob {
 	protected void updateWalkAnimation(float distance) {
 		float sqrtScale = Mth.sqrt(Math.max(getScale(), 0.01F));
 		walkAnimation.update(Math.min(distance * 4.0F / sqrtScale, 1.0F), 0.4F, 1.0F / sqrtScale);
+	}
+
+	@Override
+	public void tick() {
+		super.tick();
+		if (!level().isClientSide() && GiantessConfig.get().footsteps.enabled) {
+			trackFootsteps();
+		}
+	}
+
+	/** One footfall per stride of ground covered on foot, alternating feet; the clients do the rest. */
+	private void trackFootsteps() {
+		double moved = Double.isNaN(lastStrideX) ? 0.0 : Math.hypot(getX() - lastStrideX, getZ() - lastStrideZ);
+		lastStrideX = getX();
+		lastStrideZ = getZ();
+		if (!onGround()) {
+			return;
+		}
+		strideProgress += moved;
+		double stride = Math.max(0.5, GiantessConfig.get().footsteps.strideLengthPerScale * getScale());
+		if (strideProgress >= stride) {
+			strideProgress -= stride;
+			footstepCount++;
+			level().broadcastEntityEvent(this, nextFootRight ? EVENT_STEP_RIGHT : EVENT_STEP_LEFT);
+			nextFootRight = !nextFootRight;
+		}
+	}
+
+	/** Footfalls announced since she spawned (server side); used by tests. */
+	public int footstepCount() {
+		return footstepCount;
+	}
+
+	@Override
+	public void handleEntityEvent(byte id) {
+		if (id == EVENT_STEP_LEFT || id == EVENT_STEP_RIGHT) {
+			footstepListener.onFootstep(this, id == EVENT_STEP_RIGHT);
+		} else {
+			super.handleEntityEvent(id);
+		}
+	}
+
+	/** The vanilla footstep is a mob-sized tap; the footfall event replaces it. */
+	@Override
+	protected void playStepSound(BlockPos pos, BlockState state) {
+	}
+
+	/**
+	 * Footsteps never break anything. Vanilla stepping carefully (sneaking) spares turtle eggs and stops magma
+	 * and redstone ore reacting to her; and she never lands on anything, so a drop cannot trample farmland.
+	 */
+	@Override
+	public boolean isSteppingCarefully() {
+		return true;
+	}
+
+	@Override
+	protected void checkFallDamage(double ya, boolean onGround, BlockState onState, BlockPos pos) {
+		super.checkFallDamage(ya, onGround, Blocks.AIR.defaultBlockState(), pos);
 	}
 
 	/** Her eyes sit far above the ground, so hills and tree canopies must not suffocate her. */

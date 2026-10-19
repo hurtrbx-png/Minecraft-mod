@@ -46,7 +46,7 @@ public final class Footing {
 
 	/**
 	 * Checks that she can walk in a straight line to {@code target}: every step up or down stays within her
-	 * step height, the water stays shallow enough to wade (or keeps getting shallower if she already stands too deep), there is no lava and every chunk on the way is loaded and ticking.
+	 * step height, the water stays shallow enough to wade (or no deeper than where she already stands), there is no lava and every chunk on the way is loaded and ticking.
 	 *
 	 * @return where she will stand at the target, or null if the line is not walkable
 	 */
@@ -59,19 +59,18 @@ public final class Footing {
 		if (start == null) {
 			return null;
 		}
+		// Water over her limit is allowed only where it is no deeper than where she already stands, so she can wade out of a lake she was placed in.
+		maxWaterDepth = Math.max(maxWaterDepth, start.waterDepth);
 		double previousY = from.y;
-		int previousDepth = start.waterDepth;
 		double y = from.y;
 		for (int i = 1; i <= steps; i++) {
 			double t = (double) i / steps;
 			Sample sample = sample(from.x + dx * t, from.z + dz * t);
-			// Water over her limit is only allowed while it keeps getting shallower, so she can wade out of a lake she was placed in.
-			boolean tooDeep = sample != null && sample.waterDepth > maxWaterDepth && sample.waterDepth > previousDepth;
+			boolean tooDeep = sample != null && sample.waterDepth > maxWaterDepth;
 			if (sample == null || sample.lava || tooDeep || Math.abs(sample.standY - previousY) > maxStep) {
 				return null;
 			}
 			previousY = sample.standY;
-			previousDepth = sample.waterDepth;
 			y = sample.standY;
 		}
 		return new Vec3(target.x, y, target.z);
