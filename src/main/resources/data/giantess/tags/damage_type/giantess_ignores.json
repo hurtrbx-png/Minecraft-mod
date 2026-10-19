@@ -1,0 +1,20 @@
+{
+	"values": [
+		"minecraft:in_wall",
+		"minecraft:cramming",
+		"minecraft:fly_into_wall",
+		"minecraft:fall",
+		"minecraft:drown",
+		"minecraft:cactus",
+		"minecraft:sweet_berry_bush",
+		"minecraft:hot_floor",
+		"minecraft:stalagmite",
+		"minecraft:falling_stalactite",
+		"minecraft:falling_block",
+		"minecraft:falling_anvil",
+		"minecraft:freeze",
+		"minecraft:in_fire",
+		"minecraft:on_fire",
+		"minecraft:lava"
+	]
+}
