@@ -72,9 +72,9 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			singleplayer.getConnection().waitForChunksRender();
 			TestServerContext server = singleplayer.getServer();
 			server.runCommand("gamemode spectator @p");
-			server.runCommand("tp @p 0 -57 -22 facing 0 -60 0");
+			server.runCommand("tp @p 0 -57 -14 facing 0 -60 0");
 
-			// Near: she walks east along z=0, 14 blocks in front of the player.
+			// Near: she walks east along z=0, 14 blocks from the player.
 			float near = walkAndMeasureShake(context, server, -20, 20, "m4-footstep");
 			// Far: the same walk 100 blocks away, well outside the shake range of a medium giantess.
 			float far = walkAndMeasureShake(context, server, 100, 140, null);
@@ -107,7 +107,7 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			context.waitTicks(1);
 			float trauma = CameraShake.trauma();
 			peak = Math.max(peak, trauma);
-			if (!shot && trauma > 0.15F) {
+			if (!shot && trauma > 0.1F) {
 				context.takeScreenshot(screenshot);
 				shot = true;
 			}
