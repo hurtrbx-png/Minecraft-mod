@@ -72,7 +72,7 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			singleplayer.getConnection().waitForChunksRender();
 			TestServerContext server = singleplayer.getServer();
 			server.runCommand("gamemode spectator @p");
-			server.runCommand("tp @p 0 -50 -14 0 10");
+			server.runCommand("tp @p 0 -57 -22 facing 0 -60 0");
 
 			// Near: she walks east along z=0, 14 blocks in front of the player.
 			float near = walkAndMeasureShake(context, server, -20, 20, "m4-footstep");
