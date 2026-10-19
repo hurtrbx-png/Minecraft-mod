@@ -14,6 +14,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageSources;
+import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.attributes.RangedAttribute;
 import net.minecraft.world.item.ItemStack;
@@ -21,6 +22,7 @@ import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.monster.zombie.Zombie;
 import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.FarmlandBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
@@ -177,5 +179,57 @@ public class GiantessGameTest {
 		context.setBlock(middle.below(), Blocks.LAVA);
 		context.assertTrue(new Footing(giantess).checkStraightWalk(target, 10, 10) == null, "lava should always be refused");
 		context.succeed();
+	}
+
+	/** Walks a normal-sized giantess across farmland and turtle eggs and counts her footfalls; nothing may break. */
+	@GameTest(maxTicks = 100)
+	public void footstepsFollowStrideAndBreakNothing(GameTestHelper context) {
+		for (int x = 0; x < 8; x++) {
+			for (int z = 0; z < 8; z++) {
+				context.setBlock(x, 1, z, Blocks.STONE);
+			}
+		}
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(FarmlandBlock.MOISTURE, 7);
+		context.setBlock(2, 1, 3, farmland);
+		context.setBlock(3, 1, 3, farmland);
+		for (int x = 4; x <= 5; x++) {
+			context.setBlock(x, 2, 3, Blocks.TURTLE_EGG);
+		}
+		GiantessEntity giantess = context.spawn(ModEntities.GIANTESS, new Vec3(0.5, 2.0, 3.5));
+		giantess.setNoAi(true);
+		giantess.getAttribute(Attributes.SCALE).setBaseValue(1.0);
+		giantess.refreshDimensions();
+		Vec3 start = giantess.position();
+		for (int tick = 1; tick <= 30; tick++) {
+			context.runAtTickTime(tick, () -> giantess.move(MoverType.SELF, new Vec3(0.2, -0.05, 0.0)));
+		}
+		context.runAtTickTime(32, () -> {
+			double walked = giantess.position().subtract(start).horizontalDistance();
+			context.assertTrue(walked > 5.0, "she should have crossed the room, walked " + walked);
+			double stride = GiantessConfig.get().footsteps.strideLengthPerScale * giantess.getScale();
+			int expected = (int) (walked / stride);
+			context.assertTrue(Math.abs(giantess.footstepCount() - expected) <= 1,
+				"footfalls " + giantess.footstepCount() + " should match walked " + walked + " / stride " + stride);
+			context.assertBlockPresent(Blocks.FARMLAND, 2, 1, 3);
+			context.assertBlockPresent(Blocks.FARMLAND, 3, 1, 3);
+			context.assertBlockPresent(Blocks.TURTLE_EGG, 4, 2, 3);
+			context.assertBlockPresent(Blocks.TURTLE_EGG, 5, 2, 3);
+			context.succeed();
+		});
+	}
+
+	/** A drop that would trample farmland under any other mob of her size leaves it alone. */
+	@GameTest(maxTicks = 100)
+	public void landingDoesNotTrampleFarmland(GameTestHelper context) {
+		BlockState farmland = Blocks.FARMLAND.defaultBlockState().setValue(FarmlandBlock.MOISTURE, 7);
+		context.setBlock(3, 1, 3, farmland);
+		GiantessEntity giantess = context.spawn(ModEntities.GIANTESS, new Vec3(3.5, 8.0, 3.5));
+		giantess.getAttribute(Attributes.SCALE).setBaseValue(1.0);
+		giantess.refreshDimensions();
+		context.runAtTickTime(60, () -> {
+			context.assertTrue(giantess.onGround(), "she should have landed");
+			context.assertBlockPresent(Blocks.FARMLAND, 3, 1, 3);
+			context.succeed();
+		});
 	}
 }

@@ -32,6 +32,8 @@ public final class GiantessConfig {
 	public double movementSpeed = 0.3;
 	/** How she walks; see {@link Movement}. */
 	public Movement movement = new Movement();
+	/** Footfall events and their client-side effects; see {@link Footsteps}. */
+	public Footsteps footsteps = new Footsteps();
 	/** How far away, in chunks, players receive her; the server view distance still caps it. */
 	public int trackingRangeChunks = 16;
 
@@ -80,6 +82,29 @@ public final class GiantessConfig {
 		public double stuckMinProgress = 1.0;
 		/** How far away, in blocks, she notices and looks at players. */
 		public float lookAtPlayerRange = 48.0F;
+	}
+
+	public static class Footsteps {
+		/** Server: a footfall event every stride while she walks. Off silences all footstep effects. */
+		public boolean enabled = true;
+		/** Server: blocks covered per step, per unit of scale (a person's stride is about 0.8 of their height / 2). */
+		public double strideLengthPerScale = 0.8;
+		/** Client: shake the camera when she steps nearby. */
+		public boolean cameraShake = true;
+		/** Client, accessibility: a quarter of the normal shake. */
+		public boolean reduceShake = false;
+		/** Client: multiplier on the shake strength. */
+		public double shakeStrength = 1.0;
+		/** Client: the shake fades to nothing at this many blocks per unit of her scale. */
+		public double shakeRangePerScale = 6.0;
+		/** Client: volume of the step sound; hearing distance is 16 blocks times this. */
+		public double soundVolume = 4.0;
+		/** Client: pitch of the step sound (the sound engine clamps it to 0.5..2.0). */
+		public double soundPitch = 0.5;
+		/** Client: block particles kicked up by each step, before the particle setting thins them. */
+		public int particleCount = 24;
+		/** Client: no particles when the camera is farther than this many blocks per unit of her scale. */
+		public double particleRangePerScale = 8.0;
 	}
 
 	public static GiantessConfig get() {
@@ -139,6 +164,17 @@ public final class GiantessConfig {
 		m.stuckCheckTicks = (int) clamp("movement.stuckCheckTicks", m.stuckCheckTicks, 10, 1200);
 		m.stuckMinProgress = clamp("movement.stuckMinProgress", m.stuckMinProgress, 0.0, 16.0);
 		m.lookAtPlayerRange = clamp("movement.lookAtPlayerRange", m.lookAtPlayerRange, 0.0F, 128.0F);
+		if (footsteps == null) {
+			footsteps = new Footsteps();
+		}
+		Footsteps f = footsteps;
+		f.strideLengthPerScale = clamp("footsteps.strideLengthPerScale", f.strideLengthPerScale, 0.1, 4.0);
+		f.shakeStrength = clamp("footsteps.shakeStrength", f.shakeStrength, 0.0, 4.0);
+		f.shakeRangePerScale = clamp("footsteps.shakeRangePerScale", f.shakeRangePerScale, 0.0, 32.0);
+		f.soundVolume = clamp("footsteps.soundVolume", f.soundVolume, 0.0, 16.0);
+		f.soundPitch = clamp("footsteps.soundPitch", f.soundPitch, 0.5, 2.0);
+		f.particleCount = (int) clamp("footsteps.particleCount", f.particleCount, 0, 200);
+		f.particleRangePerScale = clamp("footsteps.particleRangePerScale", f.particleRangePerScale, 0.0, 32.0);
 	}
 
 	private static float clamp(String key, float value, float min, float max) {

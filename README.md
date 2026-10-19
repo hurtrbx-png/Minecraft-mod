@@ -22,6 +22,8 @@ Find the Giantess Spawn Egg in the Spawn Eggs creative tab, or use `/summon gian
 
 She strolls slowly between pauses and looks at nearby players. Her step height grows with her size, she wades through shallow water and walks through trees without harming them (block tag `giantess:walks_through`, editable with a data pack). She avoids cliffs, deep water and lava, and never breaks blocks.
 
+Each step is a heavy thud: the ground shakes the camera (less the farther you are), block dust and leaves fly up from her foot, and the step sound is the block's own pitched down. Nothing is damaged: she does not trample farmland or crush turtle eggs.
+
 ## Config
 
 Settings live in `config/giantess.json`, created with defaults on first launch and read at startup (restart after editing; invalid values are clamped with a log warning).
@@ -41,4 +43,12 @@ Settings live in `config/giantess.json`, created with defaults on first launch a
 | `movement.maxWadeDepth` | `0.4` | Deepest water she wades into, as a fraction of her height |
 | `movement.stuckCheckTicks` / `stuckMinProgress` | `60` / `1.0` | A stroll is given up when she covers less than this many blocks in this many ticks |
 | `movement.lookAtPlayerRange` | `48` | How far away, in blocks, she notices and looks at players |
+| `footsteps.enabled` | `true` | Server: announce a footfall every stride she walks; off silences every footstep effect |
+| `footsteps.strideLengthPerScale` | `0.8` | Server: blocks per step, per unit of scale |
+| `footsteps.cameraShake` / `reduceShake` | `true` / `false` | Client: shake the camera when she steps nearby; `reduceShake` cuts it to a quarter (accessibility) |
+| `footsteps.shakeStrength` | `1.0` | Client: multiplier on the shake |
+| `footsteps.shakeRangePerScale` | `6.0` | Client: the shake fades out at this many blocks per unit of her scale (48 blocks at medium) |
+| `footsteps.soundVolume` / `soundPitch` | `4.0` / `0.5` | Client: step sound volume (hearing distance is 16 blocks times this) and pitch (0.5 to 2.0) |
+| `footsteps.particleCount` | `24` | Client: block particles per step (the game's particle setting thins them further; `0` for none) |
+| `footsteps.particleRangePerScale` | `8.0` | Client: no step particles beyond this many blocks per unit of scale |
 | `debugLogging` | `false` | Extra diagnostic logging |

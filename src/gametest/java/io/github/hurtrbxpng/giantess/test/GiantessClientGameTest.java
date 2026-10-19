@@ -1,5 +1,6 @@
 package io.github.hurtrbxpng.giantess.test;
 
+import io.github.hurtrbxpng.giantess.client.effects.CameraShake;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
@@ -30,6 +31,7 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	@Override
 	public void runTest(ClientGameTestContext context) {
 		checkSummonAndLooks(context);
+		checkFootstepShake(context);
 		soakInGeneratedTerrain(context);
 	}
 
@@ -59,6 +61,59 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 				throw new AssertionError("expected exactly one unharmed giantess after /summon, got " + healthFractions);
 			}
 		}
+	}
+
+	/** A giantess striding past the player shakes the camera; one walking at the edge of view distance does not. */
+	private static void checkFootstepShake(ClientGameTestContext context) {
+		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
+			singleplayer.getConnection().waitForChunksRender();
+			TestServerContext server = singleplayer.getServer();
+			server.runCommand("gamemode spectator @p");
+			server.runCommand("tp @p 0 -50 -14 0 10");
+
+			// Near: she walks east along z=0, 14 blocks in front of the player.
+			float near = walkAndMeasureShake(context, server, -20, 20, "m4-footstep");
+			// Far: the same walk 100 blocks away, well outside the shake range of a medium giantess.
+			float far = walkAndMeasureShake(context, server, 100, 140, null);
+			LOGGER.info("Footstep shake: peak trauma near {} far {}", near, far);
+			if (near < 0.05F) {
+				throw new AssertionError("a giantess walking past the player should shake the camera, peak trauma was " + near);
+			}
+			if (far != 0.0F) {
+				throw new AssertionError("a giantess 100 blocks away should not shake the camera, peak trauma was " + far);
+			}
+		}
+	}
+
+	private static float walkAndMeasureShake(ClientGameTestContext context, TestServerContext server, int fromX, int toX, String screenshot) {
+		server.runCommand("kill @e[type=giantess:giantess]");
+		server.runCommand("summon giantess:giantess %d -60 0 {Rotation:[-90.0f,0.0f]}".formatted(fromX));
+		context.waitTicks(20);
+		server.computeOnServer(minecraftServer -> {
+			for (GiantessEntity giantess : soakGiantesses(minecraftServer.overworld())) {
+				giantess.getMoveControl().setWantedPosition(toX, -60, 0, 1.0);
+			}
+			return null;
+		});
+		CameraShake.reset();
+		float peak = 0.0F;
+		boolean shot = screenshot == null;
+		for (int tick = 0; tick < 200; tick++) {
+			context.waitTicks(1);
+			float trauma = CameraShake.trauma();
+			peak = Math.max(peak, trauma);
+			if (!shot && trauma > 0.15F) {
+				context.takeScreenshot(screenshot);
+				shot = true;
+			}
+		}
+		int steps = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream()
+			.mapToInt(GiantessEntity::footstepCount).sum());
+		LOGGER.info("Walk {} -> {}: {} footfalls, peak trauma {}", fromX, toX, steps, peak);
+		if (steps == 0) {
+			throw new AssertionError("the giantess never took a step, so the shake check would prove nothing");
+		}
+		return peak;
 	}
 
 	/**
