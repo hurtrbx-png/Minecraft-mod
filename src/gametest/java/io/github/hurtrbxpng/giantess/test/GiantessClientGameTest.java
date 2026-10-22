@@ -278,10 +278,11 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			context.waitTicks(10);
 			context.takeScreenshot("m6-friendly");
 
-			server.runCommand("giantess trust @p set " + config.hostileAt);
+			// Step in close while she is still friendly (she stands still for a friend), then turn her hostile.
 			Vec3 her = soakPositions(server).get(0);
 			server.runCommand("tp @p %.2f %.2f %.2f".formatted(her.x, her.y, her.z - HOSTILE_START_DISTANCE));
 			server.runCommand("tp @p ~ ~ ~ facing entity @e[type=giantess:giantess,limit=1] eyes");
+			server.runCommand("giantess trust @p set " + config.hostileAt);
 			context.waitTicks(20);
 			context.takeScreenshot("m6-hostile-warning");
 			int warnings = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).get(0).keepAwayGoal().warnings());
