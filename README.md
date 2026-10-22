@@ -26,7 +26,9 @@ Each step is a heavy thud: the ground shakes the camera (less the farther you ar
 
 Right-click her with an empty hand to climb onto her shoulder; a second player can take the other one. You stay aboard as she walks and turns, and nothing she walks through can suffocate you. Sneak to climb down: you are set on the ground beside her, never dropped. If she dies, riders are set down the same way.
 
-Giantesses remember how you treat them: every player has one trust value, shared by all giantesses and kept across deaths and relogs. It starts at 0 (neutral). Gifts raise it (right-click her holding an item from the `giantess:gifts` item tag: flowers, cake, cookies, pie, berries, honey, golden apples), and so does killing a monster near a villager while a giantess is close enough to see it. Hitting her lowers it. A message tells you when her mood towards you changes; while she is hostile she won't let you climb up. Operators can check or change trust with `/giantess trust <players> [set|add <value>]`.
+Giantesses remember how you treat them: every player has one trust value, shared by all giantesses and kept across deaths and relogs. It starts at 0 (neutral). Gifts raise it (right-click her holding an item from the `giantess:gifts` item tag: flowers, cake, cookies, pie, berries, honey, golden apples), and so does killing a monster near a villager while a giantess is close enough to see it. Hitting her lowers it. A message tells you when her mood towards you changes; while she is hostile she won't let you climb up.
+
+Her mood is her mood towards the nearest player (riders aside): happy sparkles when friendly, angry puffs when hostile. A friend who wanders off sees her walk over. A player she is hostile to sees her back away and keep her distance; come too close and she grumbles a warning, and if you are still in her space a few seconds later she stomps beside you, shoving you back (a little damage, nothing broken). A rider she turns hostile to is set down. Operators can check or change trust with `/giantess trust <players> [set|add <value>]`.
 
 ## Config
 
@@ -66,4 +68,12 @@ Settings live in `config/giantess.json`, created with defaults on first launch a
 | `disposition.protectTrust` | `5` | Trust for killing a monster near a villager while she can see it |
 | `disposition.protectVillagerRadius` / `witnessRadius` | `16` / `64` | Blocks from the monster within which a villager counts as protected / a giantess sees it |
 | `disposition.attackTrust` | `15` | Trust lost per hit on her |
+| `disposition.moodRangePerScale` | `6.0` | Her mood follows the nearest player within this many blocks per unit of her scale |
+| `disposition.followStartPerScale` / `followStopPerScale` | `3.0` / `1.5` | Friendly: she walks over to a player farther than this, and stops this close (per unit of scale) |
+| `disposition.followSpeedModifier` | `1.0` | Friendly: walking speed multiplier while she comes over |
+| `disposition.keepDistancePerScale` / `warnDistancePerScale` | `2.0` / `1.25` | Hostile: she backs away from a player closer than this, and warns one closer than that (per unit of scale) |
+| `disposition.warnTicks` / `stompCooldownTicks` | `60` / `100` | Ticks from her warning to the stomp, and before she warns again |
+| `disposition.stompDamage` / `stompKnockback` | `2.0` / `1.5` | Stomp damage (0 for a harmless shove) and shove strength |
+| `disposition.warnSoundVolume` | `2.0` | Client: volume of her warning grumble |
+| `disposition.moodParticleChance` | `0.04` | Client: chance per tick of a mood particle over her head |
 | `debugLogging` | `false` | Extra diagnostic logging |

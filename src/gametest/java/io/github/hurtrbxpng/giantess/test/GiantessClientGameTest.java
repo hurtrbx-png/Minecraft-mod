@@ -54,6 +54,9 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	private static final int RIDE_TICKS = 1200;
 	private static final double MIN_RIDE_TRAVEL = 8.0;
 	private static final int TRUST_ADDED = 30;
+	private static final int MOOD_TICKS = 200;
+	/** How far from her the hostile check puts the player: inside her warning distance at the default size. */
+	private static final double HOSTILE_START_DISTANCE = 8.0;
 	private static final int RIDE_TOGETHER_TICKS = 600;
 	private static final int[][] SOAK_OFFSETS = {{0, 0}, {48, 32}, {-40, -48}};
 
@@ -64,6 +67,7 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 		checkRiding(context);
 		checkRidingTogether(context);
 		checkTrustSurvivesReload(context);
+		checkMoods(context);
 		soakInGeneratedTerrain(context);
 	}
 
@@ -247,6 +251,60 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			context.waitTicks(20);
 			assertTrust(context, reopened.getServer(), expected, "after reloading the world");
 		}
+	}
+
+	/**
+	 * M6b in a real world: she walks over to a friend standing far off, then backs away from the same player once
+	 * hostile and warns them. This client sees each mood. Screenshots of both.
+	 */
+	private static void checkMoods(ClientGameTestContext context) {
+		GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
+			singleplayer.getConnection().waitForChunksRender();
+			TestServerContext server = singleplayer.getServer();
+			server.runCommand("gamemode survival @p");
+			server.runCommand("time set day");
+			server.runCommand("forceload add -64 -64 64 64");
+			server.runCommand("execute at @p run summon giantess:giantess ~ ~ ~36");
+			server.runCommand("giantess trust @p set " + config.friendlyAt);
+			context.waitTicks(MOOD_TICKS);
+			double scale = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).get(0).getScale());
+			double friendDistance = distanceToHer(server);
+			LOGGER.info("Friendly: she is {} blocks from the player, client sees {}", friendDistance, clientMood(context));
+			if (clientMood(context) != Disposition.Mood.FRIENDLY || friendDistance > config.followStartPerScale * scale) {
+				throw new AssertionError("a friend 36 blocks off should see a friendly giantess walk over, she is " + friendDistance + " away");
+			}
+			server.runCommand("tp @p ~ ~ ~ facing entity @e[type=giantess:giantess,limit=1] eyes");
+			context.waitTicks(10);
+			context.takeScreenshot("m6-friendly");
+
+			server.runCommand("giantess trust @p set " + config.hostileAt);
+			Vec3 her = soakPositions(server).get(0);
+			server.runCommand("tp @p %.2f %.2f %.2f".formatted(her.x, her.y, her.z - HOSTILE_START_DISTANCE));
+			server.runCommand("tp @p ~ ~ ~ facing entity @e[type=giantess:giantess,limit=1] eyes");
+			context.waitTicks(20);
+			context.takeScreenshot("m6-hostile-warning");
+			int warnings = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).get(0).keepAwayGoal().warnings());
+			context.waitTicks(MOOD_TICKS - 20);
+			double enemyDistance = distanceToHer(server);
+			LOGGER.info("Hostile: warnings {}, she is {} blocks from the player, client sees {}", warnings, enemyDistance, clientMood(context));
+			if (clientMood(context) != Disposition.Mood.HOSTILE || warnings < 1 || enemyDistance < config.keepDistancePerScale * scale) {
+				throw new AssertionError("a hostile giantess should warn a player who comes close and back off to "
+					+ config.keepDistancePerScale * scale + ": warnings " + warnings + ", distance " + enemyDistance);
+			}
+		}
+	}
+
+	private static double distanceToHer(TestServerContext server) {
+		return server.computeOnServer(minecraftServer -> {
+			ServerPlayer player = minecraftServer.getPlayerList().getPlayers().get(0);
+			GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+			return Math.hypot(player.getX() - giantess.getX(), player.getZ() - giantess.getZ());
+		});
+	}
+
+	private static Disposition.Mood clientMood(ClientGameTestContext context) {
+		return context.computeOnClient(client -> clientGiantesses(client).get(0).mood());
 	}
 
 	private static void assertTrust(ClientGameTestContext context, TestServerContext server, int expected, String when) {

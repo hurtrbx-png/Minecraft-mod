@@ -145,6 +145,30 @@ public final class GiantessConfig {
 		public double witnessRadius = 64.0;
 		/** Trust lost each time the player hurts her. */
 		public int attackTrust = 15;
+		/** Her mood is her mood towards the nearest player within this many blocks per unit of scale (riders aside). */
+		public double moodRangePerScale = 6.0;
+		/** Friendly: she walks over when that player is farther than this per unit of scale... */
+		public double followStartPerScale = 3.0;
+		/** ...and stops this close, per unit of scale. */
+		public double followStopPerScale = 1.5;
+		/** Friendly: walking speed multiplier while she comes over. */
+		public double followSpeedModifier = 1.0;
+		/** Hostile: she backs away from that player when they are closer than this per unit of scale... */
+		public double keepDistancePerScale = 2.0;
+		/** ...warns them when they come closer than this per unit of scale... */
+		public double warnDistancePerScale = 1.25;
+		/** ...and stomps (a shove, never breaking blocks) if they are still that close this many ticks after the warning. */
+		public int warnTicks = 60;
+		/** Ticks after a stomp before she warns again. */
+		public int stompCooldownTicks = 100;
+		/** Damage of a stomp (0 for a harmless shove). */
+		public double stompDamage = 2.0;
+		/** Strength of the stomp's shove (a sword's knockback is 0.4 per level). */
+		public double stompKnockback = 1.5;
+		/** Client: volume of her warning grumble. */
+		public double warnSoundVolume = 2.0;
+		/** Client: chance per tick of a mood particle above her head (angry or happy) while she is hostile or friendly. */
+		public double moodParticleChance = 0.04;
 	}
 
 	public static GiantessConfig get() {
@@ -236,6 +260,18 @@ public final class GiantessConfig {
 		d.protectVillagerRadius = clamp("disposition.protectVillagerRadius", d.protectVillagerRadius, 0.0, 64.0);
 		d.witnessRadius = clamp("disposition.witnessRadius", d.witnessRadius, 0.0, 256.0);
 		d.attackTrust = (int) clamp("disposition.attackTrust", d.attackTrust, 0, d.maxTrust);
+		d.moodRangePerScale = clamp("disposition.moodRangePerScale", d.moodRangePerScale, 0.0, 16.0);
+		d.followStartPerScale = clamp("disposition.followStartPerScale", d.followStartPerScale, 0.5, 16.0);
+		d.followStopPerScale = clamp("disposition.followStopPerScale", d.followStopPerScale, 0.5, d.followStartPerScale);
+		d.followSpeedModifier = clamp("disposition.followSpeedModifier", d.followSpeedModifier, 0.1, 4.0);
+		d.keepDistancePerScale = clamp("disposition.keepDistancePerScale", d.keepDistancePerScale, 0.5, 16.0);
+		d.warnDistancePerScale = clamp("disposition.warnDistancePerScale", d.warnDistancePerScale, 0.5, d.keepDistancePerScale);
+		d.warnTicks = (int) clamp("disposition.warnTicks", d.warnTicks, 0, 1200);
+		d.stompCooldownTicks = (int) clamp("disposition.stompCooldownTicks", d.stompCooldownTicks, 20, 24000);
+		d.stompDamage = clamp("disposition.stompDamage", d.stompDamage, 0.0, 20.0);
+		d.stompKnockback = clamp("disposition.stompKnockback", d.stompKnockback, 0.0, 4.0);
+		d.warnSoundVolume = clamp("disposition.warnSoundVolume", d.warnSoundVolume, 0.0, 16.0);
+		d.moodParticleChance = clamp("disposition.moodParticleChance", d.moodParticleChance, 0.0, 1.0);
 	}
 
 	private static float clamp(String key, float value, float min, float max) {

@@ -4,7 +4,9 @@ import io.github.hurtrbxpng.giantess.config.GiantessConfig;
 import io.github.hurtrbxpng.giantess.disposition.Disposition;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessMoveControl;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessNavigation;
+import io.github.hurtrbxpng.giantess.entity.ai.FollowFriendGoal;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessWanderGoal;
+import io.github.hurtrbxpng.giantess.entity.ai.KeepAwayGoal;
 import io.github.hurtrbxpng.giantess.registry.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.ParticleTypes;
@@ -14,6 +16,8 @@ import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -39,6 +43,8 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
 
+import java.util.List;
+
 /**
  * The giant. Her size comes from the vanilla scale attribute, so the hitbox, eye height and
  * rendering all follow {@link GiantessConfig#size}. The overrides below stop a body this big
@@ -57,11 +63,18 @@ public class GiantessEntity extends PathfinderMob {
 	 */
 	private static final EntityDataAccessor<Integer> DATA_LEFT_RIDER = SynchedEntityData.defineId(GiantessEntity.class, EntityDataSerializers.INT);
 	private static final int NO_RIDER = -1;
+	/** Her mood towards her focus player, as a {@link Disposition.Mood} ordinal; clients show it. */
+	private static final EntityDataAccessor<Byte> DATA_MOOD = SynchedEntityData.defineId(GiantessEntity.class, EntityDataSerializers.BYTE);
+	private static final int FOCUS_INTERVAL_TICKS = 10;
 
 	/** Entity events carrying a footfall to the clients: the foot that came down is the left or the right one. */
 	public static final byte EVENT_STEP_LEFT = 100;
 	public static final byte EVENT_STEP_RIGHT = 101;
 	public static final byte EVENT_GIFT_ACCEPTED = 102;
+	public static final byte EVENT_WARN = 103;
+	public static final byte EVENT_STOMP = 104;
+	private static final int WARN_PARTICLES = 12;
+	private static final float WARN_PITCH = 0.5F;
 	private static final int GIFT_HEARTS = 7;
 
 	/** Client-side hook for footstep effects; the client sets it, a dedicated server never does. */
@@ -78,6 +91,8 @@ public class GiantessEntity extends PathfinderMob {
 	}
 
 	private GiantessWanderGoal wanderGoal;
+	private KeepAwayGoal keepAwayGoal;
+	private @Nullable Player focus;
 	private double strideProgress;
 	private double lastStrideX = Double.NaN;
 	private double lastStrideZ;
@@ -95,6 +110,7 @@ public class GiantessEntity extends PathfinderMob {
 	protected void defineSynchedData(SynchedEntityData.Builder builder) {
 		super.defineSynchedData(builder);
 		builder.define(DATA_LEFT_RIDER, NO_RIDER);
+		builder.define(DATA_MOOD, (byte) Disposition.Mood.NEUTRAL.ordinal());
 	}
 
 	public static AttributeSupplier.Builder createAttributes() {
@@ -108,14 +124,33 @@ public class GiantessEntity extends PathfinderMob {
 
 	@Override
 	protected void registerGoals() {
+		keepAwayGoal = new KeepAwayGoal(this);
 		wanderGoal = new GiantessWanderGoal(this);
-		goalSelector.addGoal(1, wanderGoal);
-		goalSelector.addGoal(2, new LookAtPlayerGoal(this, Player.class, GiantessConfig.get().movement.lookAtPlayerRange));
-		goalSelector.addGoal(3, new RandomLookAroundGoal(this));
+		goalSelector.addGoal(0, keepAwayGoal);
+		goalSelector.addGoal(1, new FollowFriendGoal(this));
+		goalSelector.addGoal(2, wanderGoal);
+		goalSelector.addGoal(3, new LookAtPlayerGoal(this, Player.class, GiantessConfig.get().movement.lookAtPlayerRange));
+		goalSelector.addGoal(4, new RandomLookAroundGoal(this));
 	}
 
 	public GiantessWanderGoal wanderGoal() {
 		return wanderGoal;
+	}
+
+	public KeepAwayGoal keepAwayGoal() {
+		return keepAwayGoal;
+	}
+
+	/** Server: the nearest player in mood range who is not riding her, or null; refreshed every half second. */
+	public @Nullable Player focus() {
+		return focus;
+	}
+
+	/** Her mood towards her focus player (neutral without one); synced, so valid on both sides. */
+	public Disposition.Mood mood() {
+		Disposition.Mood[] moods = Disposition.Mood.values();
+		int ordinal = entityData.get(DATA_MOOD);
+		return ordinal >= 0 && ordinal < moods.length ? moods[ordinal] : Disposition.Mood.NEUTRAL;
 	}
 
 	@Override
@@ -148,9 +183,40 @@ public class GiantessEntity extends PathfinderMob {
 	@Override
 	public void tick() {
 		super.tick();
-		if (!level().isClientSide() && GiantessConfig.get().footsteps.enabled) {
+		if (level().isClientSide()) {
+			showMood();
+			return;
+		}
+		if (GiantessConfig.get().footsteps.enabled) {
 			trackFootsteps();
 		}
+		if (tickCount % FOCUS_INTERVAL_TICKS == 0) {
+			updateFocus();
+		}
+	}
+
+	/** Picks her focus player, publishes her mood towards them, and sets down any rider she has turned hostile to. */
+	private void updateFocus() {
+		double range = GiantessConfig.get().disposition.moodRangePerScale * getScale();
+		focus = level().getNearestPlayer(getX(), getY(), getZ(), range,
+			entity -> entity.isAlive() && !entity.isSpectator() && entity.getVehicle() != this);
+		Disposition.Mood mood = focus == null ? Disposition.Mood.NEUTRAL : Disposition.mood(focus);
+		entityData.set(DATA_MOOD, (byte) mood.ordinal());
+		for (Entity rider : List.copyOf(getPassengers())) {
+			if (rider instanceof Player player && Disposition.mood(player) == Disposition.Mood.HOSTILE) {
+				player.stopRiding();
+			}
+		}
+	}
+
+	/** Client: now and then an angry or happy particle over her head while she is hostile or friendly. */
+	private void showMood() {
+		Disposition.Mood mood = mood();
+		if (mood == Disposition.Mood.NEUTRAL || random.nextDouble() >= GiantessConfig.get().disposition.moodParticleChance) {
+			return;
+		}
+		level().addParticle(mood == Disposition.Mood.HOSTILE ? ParticleTypes.ANGRY_VILLAGER : ParticleTypes.HAPPY_VILLAGER,
+			getRandomX(0.5), getEyeY() + random.nextDouble() * 0.2 * getBbHeight(), getRandomZ(0.5), 0.0, 0.0, 0.0);
 	}
 
 	/** One footfall per stride of ground covered on foot, alternating feet; the clients do the rest. */
@@ -178,8 +244,14 @@ public class GiantessEntity extends PathfinderMob {
 
 	@Override
 	public void handleEntityEvent(byte id) {
-		if (id == EVENT_STEP_LEFT || id == EVENT_STEP_RIGHT) {
-			footstepListener.onFootstep(this, id == EVENT_STEP_RIGHT);
+		if (id == EVENT_STEP_LEFT || id == EVENT_STEP_RIGHT || id == EVENT_STOMP) {
+			footstepListener.onFootstep(this, id != EVENT_STEP_LEFT);
+		} else if (id == EVENT_WARN) {
+			for (int i = 0; i < WARN_PARTICLES; i++) {
+				level().addParticle(ParticleTypes.ANGRY_VILLAGER, getRandomX(0.6), getEyeY() + random.nextDouble(), getRandomZ(0.6), 0.0, 0.0, 0.0);
+			}
+			level().playLocalSound(getX(), getEyeY(), getZ(), SoundEvents.VILLAGER_NO, SoundSource.NEUTRAL,
+				(float) GiantessConfig.get().disposition.warnSoundVolume, WARN_PITCH, false);
 		} else if (id == EVENT_GIFT_ACCEPTED) {
 			for (int i = 0; i < GIFT_HEARTS; i++) {
 				level().addParticle(ParticleTypes.HEART, getRandomX(0.5), getEyeY() + random.nextDouble(), getRandomZ(0.5),
