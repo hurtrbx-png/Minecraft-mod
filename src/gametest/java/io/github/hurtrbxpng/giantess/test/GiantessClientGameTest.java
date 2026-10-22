@@ -215,6 +215,8 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	private static void checkRidingTogether(ClientGameTestContext context) {
 		Properties properties = new Properties();
 		properties.setProperty("level-type", "minecraft:flat");
+		// The test server allows one player by default; the stand-in takes a slot.
+		properties.setProperty("max-players", "4");
 		try (TestDedicatedServerContext server = context.worldBuilder().createServer(properties)) {
 			try (TestDedicatedServerConnection connection = server.connect()) {
 				connection.waitForChunksRender();
