@@ -2,6 +2,7 @@ package io.github.hurtrbxpng.giantess.test;
 
 import io.github.hurtrbxpng.giantess.Giantess;
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
+import io.github.hurtrbxpng.giantess.disposition.Disposition;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import io.github.hurtrbxpng.giantess.entity.ai.Footing;
 import io.github.hurtrbxpng.giantess.registry.ModEntities;
@@ -14,6 +15,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageSources;
+import net.minecraft.world.Difficulty;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.server.level.ServerPlayer;
@@ -21,6 +23,8 @@ import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.attributes.RangedAttribute;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.monster.zombie.Zombie;
@@ -316,6 +320,116 @@ public class GiantessGameTest {
 				context.assertTrue(rider.getHealth() == rider.getMaxHealth() && survivor.getHealth() == survivor.getMaxHealth(), "nobody should be hurt");
 				context.succeed();
 			});
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void trustRisesWithGiftsAndDefenceAndFallsWithAttacks(GameTestHelper context) {
+		withLandedGiantess(context, giantess -> {
+			GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+			ServerLevel level = context.getLevel();
+			ServerPlayer player = context.makeMockServerPlayerInLevel();
+			player.setGameMode(GameType.SURVIVAL);
+			context.assertTrue(Disposition.trust(player) == 0 && Disposition.mood(player) == Disposition.Mood.NEUTRAL, "a stranger starts neutral");
+
+			player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.COOKIE, 2));
+			giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+			context.assertTrue(Disposition.trust(player) == config.giftTrust, "a gift should raise trust, got " + Disposition.trust(player));
+			context.assertTrue(player.getMainHandItem().getCount() == 1, "the gift should be used up");
+			giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+			context.assertTrue(Disposition.trust(player) == config.giftTrust && player.getMainHandItem().getCount() == 1,
+				"a second gift right away should be refused and kept");
+			player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+
+			context.spawn(EntityTypes.VILLAGER, new BlockPos(1, 2, 1));
+			Zombie zombie = context.spawn(EntityTypes.ZOMBIE, new BlockPos(2, 2, 1));
+			zombie.hurtServer(level, level.damageSources().playerAttack(player), 1000.0F);
+			int defended = config.giftTrust + config.protectTrust;
+			context.assertTrue(zombie.isDeadOrDying() && Disposition.trust(player) == defended,
+				"killing a monster beside a villager in her sight should raise trust, got " + Disposition.trust(player));
+
+			giantess.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
+			context.assertTrue(Disposition.trust(player) == defended - config.attackTrust, "hitting her should lower trust, got " + Disposition.trust(player));
+
+			Disposition.setTrust(player, config.hostileAt);
+			context.assertTrue(Disposition.mood(player) == Disposition.Mood.HOSTILE, "trust at hostileAt should make her hostile");
+			context.assertFalse(board(player, giantess), "she should not let a player she is hostile to climb up");
+			Disposition.setTrust(player, config.friendlyAt);
+			context.assertTrue(Disposition.mood(player) == Disposition.Mood.FRIENDLY, "trust at friendlyAt should make her friendly");
+			context.assertTrue(board(player, giantess), "a friend can climb up");
+			Disposition.setTrust(player, config.maxTrust * 10);
+			context.assertTrue(Disposition.trust(player) == config.maxTrust, "trust should stop at maxTrust");
+			context.succeed();
+		});
+	}
+
+	/** A human-sized giantess with her AI on, so her mood goals run in the small test area. */
+	private static GiantessEntity spawnHumanSized(GameTestHelper context, Vec3 pos) {
+		GiantessEntity giantess = context.spawn(ModEntities.GIANTESS, pos);
+		giantess.getAttribute(Attributes.SCALE).setBaseValue(1.0);
+		giantess.refreshDimensions();
+		return giantess;
+	}
+
+	private static ServerPlayer survivalPlayerAt(GameTestHelper context, Vec3 relative, int trust) {
+		ServerPlayer player = context.makeMockServerPlayerInLevel();
+		player.setGameMode(GameType.SURVIVAL);
+		Vec3 pos = context.absoluteVec(relative);
+		player.snapTo(pos.x, pos.y, pos.z);
+		Disposition.setTrust(player, trust);
+		return player;
+	}
+
+	private static double horizontalDistance(GiantessEntity giantess, ServerPlayer player) {
+		return Math.hypot(player.getX() - giantess.getX(), player.getZ() - giantess.getZ());
+	}
+
+	@GameTest(maxTicks = 240)
+	public void friendlyGiantessComesOverAndHostileOneBacksAway(GameTestHelper context) {
+		GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+		GiantessEntity giantess = spawnHumanSized(context, new Vec3(1.5, 2.0, 4.5));
+		ServerPlayer player = survivalPlayerAt(context, new Vec3(6.0, 2.0, 4.5), config.friendlyAt);
+		double[] beforeHostile = new double[1];
+		context.runAtTickTime(100, () -> {
+			context.assertTrue(giantess.mood() == Disposition.Mood.FRIENDLY, "her mood should follow the friendly player near her");
+			double distance = horizontalDistance(giantess, player);
+			context.assertTrue(distance < config.followStartPerScale, "she should have come over to her friend, still " + distance + " away");
+			beforeHostile[0] = distance;
+			Disposition.setTrust(player, config.hostileAt);
+		});
+		context.runAtTickTime(200, () -> {
+			context.assertTrue(giantess.mood() == Disposition.Mood.HOSTILE, "her mood should turn hostile with the player's trust");
+			double distance = horizontalDistance(giantess, player);
+			context.assertTrue(distance >= config.keepDistancePerScale && distance > beforeHostile[0],
+				"she should have backed away from the hostile player, now " + distance + " away (was " + beforeHostile[0] + ")");
+			context.succeed();
+		});
+	}
+
+	@GameTest(maxTicks = 300)
+	public void hostileGiantessWarnsBeforeStomping(GameTestHelper context) {
+		GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+		GiantessEntity giantess = spawnHumanSized(context, new Vec3(4.5, 2.0, 4.5));
+		ServerPlayer player = survivalPlayerAt(context, new Vec3(5.5, 2.0, 4.5), config.hostileAt);
+		long[] warnedAt = {-1};
+		long[] stompedAt = {-1};
+		// The player keeps pressing her: every tick they stand one block from her, wherever she backs off to.
+		context.onEachTick(() -> {
+			player.snapTo(giantess.getX() + 1.0, giantess.getY(), giantess.getZ());
+			if (warnedAt[0] < 0 && giantess.keepAwayGoal().warnings() > 0) {
+				warnedAt[0] = context.getTick();
+			}
+			if (stompedAt[0] < 0 && giantess.keepAwayGoal().stomps() > 0) {
+				stompedAt[0] = context.getTick();
+			}
+		});
+		context.succeedWhen(() -> {
+			context.assertTrue(stompedAt[0] >= 0, "she should stomp when a hostile player stays too close");
+			context.assertTrue(warnedAt[0] >= 0 && stompedAt[0] - warnedAt[0] >= config.warnTicks,
+				"she should warn " + config.warnTicks + " ticks before stomping, warned at " + warnedAt[0] + ", stomped at " + stompedAt[0]);
+			context.assertTrue(giantess.keepAwayGoal().warnings() == 1, "one warning per stomp");
+			context.assertTrue(context.getLevel().getDifficulty() == Difficulty.PEACEFUL || player.getHealth() < player.getMaxHealth(),
+				"the stomp should hurt a little");
 		});
 	}
 

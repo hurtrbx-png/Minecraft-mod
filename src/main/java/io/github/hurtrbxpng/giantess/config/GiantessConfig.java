@@ -36,6 +36,8 @@ public final class GiantessConfig {
 	public Footsteps footsteps = new Footsteps();
 
 	public Climbing climbing = new Climbing();
+	/** Server: how giantesses feel about each player (trust from -maxTrust to maxTrust, starting at 0). */
+	public Disposition disposition = new Disposition();
 	/** How far away, in chunks, players receive her; the server view distance still caps it. */
 	public int trackingRangeChunks = 16;
 
@@ -124,6 +126,51 @@ public final class GiantessConfig {
 		public double riderShakeMultiplier = 0.5;
 	}
 
+	public static class Disposition {
+		/** Largest trust a player can reach either way. */
+		public int maxTrust = 100;
+		/** At or above this trust she is friendly towards the player. */
+		public int friendlyAt = 30;
+		/** At or below this trust she is hostile towards the player (who then cannot climb her). */
+		public int hostileAt = -30;
+		/** Trust gained per gift (right-click her holding an item from the giantess:gifts item tag). */
+		public int giftTrust = 10;
+		/** Ticks after a gift before she accepts another from the same player. */
+		public int giftCooldownTicks = 100;
+		/** Trust gained for killing a monster near a villager while a giantess is near enough to see it. */
+		public int protectTrust = 5;
+		/** A villager this many blocks from the monster counts as protected. */
+		public double protectVillagerRadius = 16.0;
+		/** A giantess this many blocks from the monster sees it happen. */
+		public double witnessRadius = 64.0;
+		/** Trust lost each time the player hurts her. */
+		public int attackTrust = 15;
+		/** Her mood is her mood towards the nearest player within this many blocks per unit of scale (riders aside). */
+		public double moodRangePerScale = 6.0;
+		/** Friendly: she walks over when that player is farther than this per unit of scale... */
+		public double followStartPerScale = 3.0;
+		/** ...and stops this close, per unit of scale. */
+		public double followStopPerScale = 1.5;
+		/** Friendly: walking speed multiplier while she comes over. */
+		public double followSpeedModifier = 1.0;
+		/** Hostile: she backs away from that player when they are closer than this per unit of scale... */
+		public double keepDistancePerScale = 2.0;
+		/** ...warns them when they come closer than this per unit of scale... */
+		public double warnDistancePerScale = 1.25;
+		/** ...and stomps (a shove, never breaking blocks) if they are still that close this many ticks after the warning. */
+		public int warnTicks = 60;
+		/** Ticks after a stomp before she warns again. */
+		public int stompCooldownTicks = 100;
+		/** Damage of a stomp (0 for a harmless shove). */
+		public double stompDamage = 2.0;
+		/** Strength of the stomp's shove (a sword's knockback is 0.4 per level). */
+		public double stompKnockback = 1.5;
+		/** Client: volume of her warning grumble. */
+		public double warnSoundVolume = 2.0;
+		/** Client: chance per tick of a mood particle above her head (angry or happy) while she is hostile or friendly. */
+		public double moodParticleChance = 0.04;
+	}
+
 	public static GiantessConfig get() {
 		return instance;
 	}
@@ -200,6 +247,31 @@ public final class GiantessConfig {
 		c.seatHeightPerScale = clamp("climbing.seatHeightPerScale", c.seatHeightPerScale, 0.0, 2.5);
 		c.seatSidePerScale = clamp("climbing.seatSidePerScale", c.seatSidePerScale, 0.0, 1.0);
 		c.riderShakeMultiplier = clamp("climbing.riderShakeMultiplier", c.riderShakeMultiplier, 0.0, 1.0);
+		if (disposition == null) {
+			disposition = new Disposition();
+		}
+		Disposition d = disposition;
+		d.maxTrust = (int) clamp("disposition.maxTrust", d.maxTrust, 1, 10000);
+		d.friendlyAt = (int) clamp("disposition.friendlyAt", d.friendlyAt, 1, d.maxTrust);
+		d.hostileAt = (int) clamp("disposition.hostileAt", d.hostileAt, -d.maxTrust, -1);
+		d.giftTrust = (int) clamp("disposition.giftTrust", d.giftTrust, 0, d.maxTrust);
+		d.giftCooldownTicks = (int) clamp("disposition.giftCooldownTicks", d.giftCooldownTicks, 0, 24000);
+		d.protectTrust = (int) clamp("disposition.protectTrust", d.protectTrust, 0, d.maxTrust);
+		d.protectVillagerRadius = clamp("disposition.protectVillagerRadius", d.protectVillagerRadius, 0.0, 64.0);
+		d.witnessRadius = clamp("disposition.witnessRadius", d.witnessRadius, 0.0, 256.0);
+		d.attackTrust = (int) clamp("disposition.attackTrust", d.attackTrust, 0, d.maxTrust);
+		d.moodRangePerScale = clamp("disposition.moodRangePerScale", d.moodRangePerScale, 0.0, 16.0);
+		d.followStartPerScale = clamp("disposition.followStartPerScale", d.followStartPerScale, 0.5, 16.0);
+		d.followStopPerScale = clamp("disposition.followStopPerScale", d.followStopPerScale, 0.5, d.followStartPerScale);
+		d.followSpeedModifier = clamp("disposition.followSpeedModifier", d.followSpeedModifier, 0.1, 4.0);
+		d.keepDistancePerScale = clamp("disposition.keepDistancePerScale", d.keepDistancePerScale, 0.5, 16.0);
+		d.warnDistancePerScale = clamp("disposition.warnDistancePerScale", d.warnDistancePerScale, 0.5, d.keepDistancePerScale);
+		d.warnTicks = (int) clamp("disposition.warnTicks", d.warnTicks, 0, 1200);
+		d.stompCooldownTicks = (int) clamp("disposition.stompCooldownTicks", d.stompCooldownTicks, 20, 24000);
+		d.stompDamage = clamp("disposition.stompDamage", d.stompDamage, 0.0, 20.0);
+		d.stompKnockback = clamp("disposition.stompKnockback", d.stompKnockback, 0.0, 4.0);
+		d.warnSoundVolume = clamp("disposition.warnSoundVolume", d.warnSoundVolume, 0.0, 16.0);
+		d.moodParticleChance = clamp("disposition.moodParticleChance", d.moodParticleChance, 0.0, 1.0);
 	}
 
 	private static float clamp(String key, float value, float min, float max) {

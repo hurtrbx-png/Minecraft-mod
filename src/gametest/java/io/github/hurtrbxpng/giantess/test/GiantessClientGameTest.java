@@ -2,6 +2,7 @@ package io.github.hurtrbxpng.giantess.test;
 
 import io.github.hurtrbxpng.giantess.client.effects.CameraShake;
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
+import io.github.hurtrbxpng.giantess.disposition.Disposition;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import io.github.hurtrbxpng.giantess.entity.ai.Footing;
 import com.mojang.authlib.GameProfile;
@@ -52,6 +53,12 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	private static final double MIN_TRAVEL = 60.0;
 	private static final int RIDE_TICKS = 1200;
 	private static final double MIN_RIDE_TRAVEL = 8.0;
+	private static final int TRUST_ADDED = 30;
+	private static final int MOOD_TICKS = 200;
+	/** Turns the player to look at her eyes where they stand (a bare "tp @p ~ ~ ~" would use the server's position). */
+	private static final String FACE_HER = "execute as @p at @s run tp @s ~ ~ ~ facing entity @e[type=giantess:giantess,limit=1] eyes";
+	/** How far from her the hostile check puts the player: inside her warning distance at the default size. */
+	private static final double HOSTILE_START_DISTANCE = 8.0;
 	private static final int RIDE_TOGETHER_TICKS = 600;
 	private static final int[][] SOAK_OFFSETS = {{0, 0}, {48, 32}, {-40, -48}};
 
@@ -61,6 +68,8 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 		checkFootstepShake(context);
 		checkRiding(context);
 		checkRidingTogether(context);
+		checkTrustSurvivesReload(context);
+		checkMoods(context);
 		soakInGeneratedTerrain(context);
 	}
 
@@ -204,6 +213,109 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			reopened.getConnection().waitForChunksRender();
 			context.waitTicks(40);
 			assertStandingBesideHer(context, "reloading a world quit while riding");
+		}
+	}
+
+	/**
+	 * M6 done-criterion: trust changes through play (a gift, the debug command, a hit), reaches the player's own
+	 * client, and is still there after quitting and reloading the world.
+	 */
+	private static void checkTrustSurvivesReload(ClientGameTestContext context) {
+		GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+		int expected = config.giftTrust + TRUST_ADDED - config.attackTrust;
+		TestSingleplayerContext singleplayer = context.worldBuilder().create();
+		TestWorldSave save = singleplayer.getWorldSave();
+		try {
+			singleplayer.getConnection().waitForChunksRender();
+			TestServerContext server = singleplayer.getServer();
+			server.runCommand("gamemode survival @p");
+			server.runCommand("execute at @p run summon giantess:giantess ~ ~ ~6");
+			server.runCommand("item replace entity @p weapon.mainhand with minecraft:poppy");
+			context.waitTicks(20);
+			server.runOnServer(minecraftServer -> {
+				ServerPlayer player = minecraftServer.getPlayerList().getPlayers().get(0);
+				GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+				giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+			});
+			server.runCommand("giantess trust @p add " + TRUST_ADDED);
+			server.runOnServer(minecraftServer -> {
+				ServerPlayer player = minecraftServer.getPlayerList().getPlayers().get(0);
+				GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+				giantess.hurtServer(minecraftServer.overworld(), minecraftServer.overworld().damageSources().playerAttack(player), 1.0F);
+			});
+			context.waitTicks(20);
+			assertTrust(context, server, expected, "after a gift, the command and a hit");
+		} finally {
+			singleplayer.close();
+		}
+		try (TestSingleplayerContext reopened = save.open()) {
+			reopened.getConnection().waitForChunksRender();
+			context.waitTicks(20);
+			assertTrust(context, reopened.getServer(), expected, "after reloading the world");
+		}
+	}
+
+	/**
+	 * M6b in a real world: she walks over to a friend standing far off, then backs away from the same player once
+	 * hostile and warns them. This client sees each mood. Screenshots of both.
+	 */
+	private static void checkMoods(ClientGameTestContext context) {
+		GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
+			singleplayer.getConnection().waitForChunksRender();
+			TestServerContext server = singleplayer.getServer();
+			server.runCommand("gamemode survival @p");
+			server.runCommand("time set day");
+			server.runCommand("forceload add -64 -64 64 64");
+			server.runCommand("execute at @p run summon giantess:giantess ~ ~ ~36");
+			server.runCommand("giantess trust @p set " + config.friendlyAt);
+			context.waitTicks(MOOD_TICKS);
+			double scale = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).get(0).getScale());
+			double friendDistance = distanceToHer(server);
+			LOGGER.info("Friendly: she is {} blocks from the player, client sees {}", friendDistance, clientMood(context));
+			if (clientMood(context) != Disposition.Mood.FRIENDLY || friendDistance > config.followStartPerScale * scale) {
+				throw new AssertionError("a friend 36 blocks off should see a friendly giantess walk over, she is " + friendDistance + " away");
+			}
+			server.runCommand(FACE_HER);
+			context.waitTicks(10);
+			context.takeScreenshot("m6-friendly");
+
+			// Step in close while she is still friendly (she stands still for a friend), then turn her hostile.
+			Vec3 her = soakPositions(server).get(0);
+			server.runCommand("tp @p %.2f %.2f %.2f".formatted(her.x, her.y, her.z - HOSTILE_START_DISTANCE));
+			server.runCommand(FACE_HER);
+			server.runCommand("giantess trust @p set " + config.hostileAt);
+			context.waitTicks(20);
+			context.takeScreenshot("m6-hostile-warning");
+			int warnings = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).get(0).keepAwayGoal().warnings());
+			context.waitTicks(MOOD_TICKS - 20);
+			double enemyDistance = distanceToHer(server);
+			LOGGER.info("Hostile: warnings {}, she is {} blocks from the player, client sees {}", warnings, enemyDistance, clientMood(context));
+			if (clientMood(context) != Disposition.Mood.HOSTILE || warnings < 1 || enemyDistance < config.keepDistancePerScale * scale) {
+				throw new AssertionError("a hostile giantess should warn a player who comes close and back off to "
+					+ config.keepDistancePerScale * scale + ": warnings " + warnings + ", distance " + enemyDistance);
+			}
+		}
+	}
+
+	private static double distanceToHer(TestServerContext server) {
+		return server.computeOnServer(minecraftServer -> {
+			ServerPlayer player = minecraftServer.getPlayerList().getPlayers().get(0);
+			GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+			return Math.hypot(player.getX() - giantess.getX(), player.getZ() - giantess.getZ());
+		});
+	}
+
+	private static Disposition.Mood clientMood(ClientGameTestContext context) {
+		return context.computeOnClient(client -> clientGiantesses(client).get(0).mood());
+	}
+
+	private static void assertTrust(ClientGameTestContext context, TestServerContext server, int expected, String when) {
+		int onServer = server.computeOnServer(minecraftServer -> Disposition.trust(minecraftServer.getPlayerList().getPlayers().get(0)));
+		int onClient = context.computeOnClient(client -> Disposition.trust(client.player));
+		LOGGER.info("Trust {}: server {}, client {}", when, onServer, onClient);
+		if (onServer != expected || onClient != expected) {
+			throw new AssertionError("trust " + when + " should be " + expected + ", server has " + onServer + ", client has " + onClient);
 		}
 	}
 
@@ -371,12 +483,16 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 				throw new AssertionError("expected " + count + " giantesses in the soak world, got " + previous.size());
 			}
 
+			List<Integer> abandoned = List.of();
 			for (int tick = SAMPLE_TICKS; tick <= SOAK_TICKS; tick += SAMPLE_TICKS) {
 				context.waitTicks(SAMPLE_TICKS);
 				List<Vec3> now = soakPositions(server);
 				if (now.size() != count) {
 					throw new AssertionError("a giantess disappeared during the soak at tick " + tick + ": " + now.size() + " left");
 				}
+				// Read before the camera teleports away: a giantess that wandered off unloads with her chunk.
+				abandoned = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream()
+					.map(giantess -> giantess.wanderGoal().abandonedStrolls()).toList());
 				for (int i = 0; i < count; i++) {
 					travelled[i] += now.get(i).distanceTo(previous.get(i));
 					if (now.get(i).distanceTo(anchors.get(i)) > 2.0) {
@@ -395,8 +511,6 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 				}
 			}
 
-			List<Integer> abandoned = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream()
-				.map(giantess -> giantess.wanderGoal().abandonedStrolls()).toList());
 			double msPerTick = server.computeOnServer(minecraftServer -> minecraftServer.getAverageTickTimeNanos() / 1.0E6);
 			for (int i = 0; i < count; i++) {
 				LOGGER.info("Soak giantess {}: travelled {} blocks, longest still {} ticks, abandoned strolls {}, ends at {}",
@@ -406,7 +520,8 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			for (int i = 0; i < count; i++) {
 				if (longestStill[i] > MAX_STILL_TICKS || travelled[i] < MIN_TRAVEL) {
 					int index = i;
-					LOGGER.info("Stuck giantess {}: {}", i, server.computeOnServer(minecraftServer -> describeSurroundings(soakGiantesses(minecraftServer.overworld()).get(index))));
+					LOGGER.info("Stuck giantess {}: {}", i, server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream()
+						.skip(index).findFirst().map(GiantessClientGameTest::describeSurroundings).orElse("unloaded")));
 					throw new AssertionError("giantess " + i + " got stuck: still for " + longestStill[i] + " ticks, travelled " + travelled[i]);
 				}
 			}

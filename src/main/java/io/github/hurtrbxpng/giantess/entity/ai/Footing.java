@@ -1,5 +1,6 @@
 package io.github.hurtrbxpng.giantess.entity.ai;
 
+import io.github.hurtrbxpng.giantess.config.GiantessConfig;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import net.minecraft.core.BlockPos;
@@ -42,6 +43,12 @@ public final class Footing {
 		this.level = giantess.level();
 		this.context = CollisionContext.of(giantess);
 		this.headY = Mth.floor(giantess.getY() + giantess.getBbHeight());
+	}
+
+	/** {@link #checkStraightWalk} with her own step height and the configured wading depth. */
+	public static @Nullable Vec3 checkStraightWalk(GiantessEntity giantess, Vec3 target) {
+		double maxWaterDepth = GiantessConfig.get().movement.maxWadeDepth * giantess.getBbHeight();
+		return new Footing(giantess).checkStraightWalk(target, giantess.maxUpStep(), maxWaterDepth);
 	}
 
 	/**
