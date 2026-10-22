@@ -422,12 +422,16 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 				throw new AssertionError("expected " + count + " giantesses in the soak world, got " + previous.size());
 			}
 
+			List<Integer> abandoned = List.of();
 			for (int tick = SAMPLE_TICKS; tick <= SOAK_TICKS; tick += SAMPLE_TICKS) {
 				context.waitTicks(SAMPLE_TICKS);
 				List<Vec3> now = soakPositions(server);
 				if (now.size() != count) {
 					throw new AssertionError("a giantess disappeared during the soak at tick " + tick + ": " + now.size() + " left");
 				}
+				// Read before the camera teleports away: a giantess that wandered off unloads with her chunk.
+				abandoned = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream()
+					.map(giantess -> giantess.wanderGoal().abandonedStrolls()).toList());
 				for (int i = 0; i < count; i++) {
 					travelled[i] += now.get(i).distanceTo(previous.get(i));
 					if (now.get(i).distanceTo(anchors.get(i)) > 2.0) {
@@ -446,8 +450,6 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 				}
 			}
 
-			List<Integer> abandoned = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream()
-				.map(giantess -> giantess.wanderGoal().abandonedStrolls()).toList());
 			double msPerTick = server.computeOnServer(minecraftServer -> minecraftServer.getAverageTickTimeNanos() / 1.0E6);
 			for (int i = 0; i < count; i++) {
 				LOGGER.info("Soak giantess {}: travelled {} blocks, longest still {} ticks, abandoned strolls {}, ends at {}",
@@ -457,7 +459,8 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			for (int i = 0; i < count; i++) {
 				if (longestStill[i] > MAX_STILL_TICKS || travelled[i] < MIN_TRAVEL) {
 					int index = i;
-					LOGGER.info("Stuck giantess {}: {}", i, server.computeOnServer(minecraftServer -> describeSurroundings(soakGiantesses(minecraftServer.overworld()).get(index))));
+					LOGGER.info("Stuck giantess {}: {}", i, server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).stream()
+						.skip(index).findFirst().map(GiantessClientGameTest::describeSurroundings).orElse("unloaded")));
 					throw new AssertionError("giantess " + i + " got stuck: still for " + longestStill[i] + " ticks, travelled " + travelled[i]);
 				}
 			}

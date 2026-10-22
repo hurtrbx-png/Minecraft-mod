@@ -358,6 +358,7 @@ public class GiantessGameTest {
 			context.assertTrue(board(player, giantess), "a friend can climb up");
 			Disposition.setTrust(player, config.maxTrust * 10);
 			context.assertTrue(Disposition.trust(player) == config.maxTrust, "trust should stop at maxTrust");
+			context.succeed();
 		});
 	}
 
