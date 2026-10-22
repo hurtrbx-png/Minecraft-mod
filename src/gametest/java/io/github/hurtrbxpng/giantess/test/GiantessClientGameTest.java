@@ -55,6 +55,8 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	private static final double MIN_RIDE_TRAVEL = 8.0;
 	private static final int TRUST_ADDED = 30;
 	private static final int MOOD_TICKS = 200;
+	/** Turns the player to look at her eyes where they stand (a bare "tp @p ~ ~ ~" would use the server's position). */
+	private static final String FACE_HER = "execute as @p at @s run tp @s ~ ~ ~ facing entity @e[type=giantess:giantess,limit=1] eyes";
 	/** How far from her the hostile check puts the player: inside her warning distance at the default size. */
 	private static final double HOSTILE_START_DISTANCE = 8.0;
 	private static final int RIDE_TOGETHER_TICKS = 600;
@@ -274,14 +276,14 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			if (clientMood(context) != Disposition.Mood.FRIENDLY || friendDistance > config.followStartPerScale * scale) {
 				throw new AssertionError("a friend 36 blocks off should see a friendly giantess walk over, she is " + friendDistance + " away");
 			}
-			server.runCommand("tp @p ~ ~ ~ facing entity @e[type=giantess:giantess,limit=1] eyes");
+			server.runCommand(FACE_HER);
 			context.waitTicks(10);
 			context.takeScreenshot("m6-friendly");
 
 			// Step in close while she is still friendly (she stands still for a friend), then turn her hostile.
 			Vec3 her = soakPositions(server).get(0);
 			server.runCommand("tp @p %.2f %.2f %.2f".formatted(her.x, her.y, her.z - HOSTILE_START_DISTANCE));
-			server.runCommand("tp @p ~ ~ ~ facing entity @e[type=giantess:giantess,limit=1] eyes");
+			server.runCommand(FACE_HER);
 			server.runCommand("giantess trust @p set " + config.hostileAt);
 			context.waitTicks(20);
 			context.takeScreenshot("m6-hostile-warning");
