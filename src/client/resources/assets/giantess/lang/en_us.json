@@ -2,5 +2,12 @@
 	"modmenu.nameTranslation.giantess": "Giantess",
 	"modmenu.descriptionTranslation.giantess": "A rare giant who wanders the world as a living landmark.",
 	"entity.giantess.giantess": "Giantess",
-	"item.giantess.giantess_spawn_egg": "Giantess Spawn Egg"
+	"item.giantess.giantess_spawn_egg": "Giantess Spawn Egg",
+	"giantess.mood.hostile": "The giantess no longer trusts you",
+	"giantess.mood.neutral": "The giantess is wary of you",
+	"giantess.mood.friendly": "The giantess has come to trust you",
+	"giantess.gift.too_soon": "She is still admiring your last gift",
+	"giantess.climb.refused": "She won't let you climb up",
+	"commands.giantess.trust.get": "%s: trust %s (%s)",
+	"commands.giantess.trust.set": "%s: trust is now %s (%s)"
 }

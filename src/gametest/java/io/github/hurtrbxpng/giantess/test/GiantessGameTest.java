@@ -2,6 +2,7 @@ package io.github.hurtrbxpng.giantess.test;
 
 import io.github.hurtrbxpng.giantess.Giantess;
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
+import io.github.hurtrbxpng.giantess.disposition.Disposition;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import io.github.hurtrbxpng.giantess.entity.ai.Footing;
 import io.github.hurtrbxpng.giantess.registry.ModEntities;
@@ -21,6 +22,8 @@ import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.attributes.RangedAttribute;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.item.SpawnEggItem;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.monster.zombie.Zombie;
@@ -316,6 +319,45 @@ public class GiantessGameTest {
 				context.assertTrue(rider.getHealth() == rider.getMaxHealth() && survivor.getHealth() == survivor.getMaxHealth(), "nobody should be hurt");
 				context.succeed();
 			});
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void trustRisesWithGiftsAndDefenceAndFallsWithAttacks(GameTestHelper context) {
+		withLandedGiantess(context, giantess -> {
+			GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+			ServerLevel level = context.getLevel();
+			ServerPlayer player = context.makeMockServerPlayerInLevel();
+			player.setGameMode(GameType.SURVIVAL);
+			context.assertTrue(Disposition.trust(player) == 0 && Disposition.mood(player) == Disposition.Mood.NEUTRAL, "a stranger starts neutral");
+
+			player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.COOKIE, 2));
+			giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+			context.assertTrue(Disposition.trust(player) == config.giftTrust, "a gift should raise trust, got " + Disposition.trust(player));
+			context.assertTrue(player.getMainHandItem().getCount() == 1, "the gift should be used up");
+			giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+			context.assertTrue(Disposition.trust(player) == config.giftTrust && player.getMainHandItem().getCount() == 1,
+				"a second gift right away should be refused and kept");
+			player.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
+
+			context.spawn(EntityTypes.VILLAGER, new BlockPos(1, 2, 1));
+			Zombie zombie = context.spawn(EntityTypes.ZOMBIE, new BlockPos(2, 2, 1));
+			zombie.hurtServer(level, level.damageSources().playerAttack(player), 1000.0F);
+			int defended = config.giftTrust + config.protectTrust;
+			context.assertTrue(zombie.isDeadOrDying() && Disposition.trust(player) == defended,
+				"killing a monster beside a villager in her sight should raise trust, got " + Disposition.trust(player));
+
+			giantess.hurtServer(level, level.damageSources().playerAttack(player), 1.0F);
+			context.assertTrue(Disposition.trust(player) == defended - config.attackTrust, "hitting her should lower trust, got " + Disposition.trust(player));
+
+			Disposition.setTrust(player, config.hostileAt);
+			context.assertTrue(Disposition.mood(player) == Disposition.Mood.HOSTILE, "trust at hostileAt should make her hostile");
+			context.assertFalse(board(player, giantess), "she should not let a player she is hostile to climb up");
+			Disposition.setTrust(player, config.friendlyAt);
+			context.assertTrue(Disposition.mood(player) == Disposition.Mood.FRIENDLY, "trust at friendlyAt should make her friendly");
+			context.assertTrue(board(player, giantess), "a friend can climb up");
+			Disposition.setTrust(player, config.maxTrust * 10);
+			context.assertTrue(Disposition.trust(player) == config.maxTrust, "trust should stop at maxTrust");
 		});
 	}
 

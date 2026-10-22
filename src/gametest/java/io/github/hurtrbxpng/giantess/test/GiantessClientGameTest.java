@@ -2,6 +2,7 @@ package io.github.hurtrbxpng.giantess.test;
 
 import io.github.hurtrbxpng.giantess.client.effects.CameraShake;
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
+import io.github.hurtrbxpng.giantess.disposition.Disposition;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import io.github.hurtrbxpng.giantess.entity.ai.Footing;
 import com.mojang.authlib.GameProfile;
@@ -52,6 +53,7 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	private static final double MIN_TRAVEL = 60.0;
 	private static final int RIDE_TICKS = 1200;
 	private static final double MIN_RIDE_TRAVEL = 8.0;
+	private static final int TRUST_ADDED = 30;
 	private static final int RIDE_TOGETHER_TICKS = 600;
 	private static final int[][] SOAK_OFFSETS = {{0, 0}, {48, 32}, {-40, -48}};
 
@@ -61,6 +63,7 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 		checkFootstepShake(context);
 		checkRiding(context);
 		checkRidingTogether(context);
+		checkTrustSurvivesReload(context);
 		soakInGeneratedTerrain(context);
 	}
 
@@ -204,6 +207,54 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			reopened.getConnection().waitForChunksRender();
 			context.waitTicks(40);
 			assertStandingBesideHer(context, "reloading a world quit while riding");
+		}
+	}
+
+	/**
+	 * M6 done-criterion: trust changes through play (a gift, the debug command, a hit), reaches the player's own
+	 * client, and is still there after quitting and reloading the world.
+	 */
+	private static void checkTrustSurvivesReload(ClientGameTestContext context) {
+		GiantessConfig.Disposition config = GiantessConfig.get().disposition;
+		int expected = config.giftTrust + TRUST_ADDED - config.attackTrust;
+		TestSingleplayerContext singleplayer = context.worldBuilder().create();
+		TestWorldSave save = singleplayer.getWorldSave();
+		try {
+			singleplayer.getConnection().waitForChunksRender();
+			TestServerContext server = singleplayer.getServer();
+			server.runCommand("gamemode survival @p");
+			server.runCommand("execute at @p run summon giantess:giantess ~ ~ ~6");
+			server.runCommand("item replace entity @p weapon.mainhand with minecraft:poppy");
+			context.waitTicks(20);
+			server.runOnServer(minecraftServer -> {
+				ServerPlayer player = minecraftServer.getPlayerList().getPlayers().get(0);
+				GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+				giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+			});
+			server.runCommand("giantess trust @p add " + TRUST_ADDED);
+			server.runOnServer(minecraftServer -> {
+				ServerPlayer player = minecraftServer.getPlayerList().getPlayers().get(0);
+				GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+				giantess.hurtServer(minecraftServer.overworld(), minecraftServer.overworld().damageSources().playerAttack(player), 1.0F);
+			});
+			context.waitTicks(20);
+			assertTrust(context, server, expected, "after a gift, the command and a hit");
+		} finally {
+			singleplayer.close();
+		}
+		try (TestSingleplayerContext reopened = save.open()) {
+			reopened.getConnection().waitForChunksRender();
+			context.waitTicks(20);
+			assertTrust(context, reopened.getServer(), expected, "after reloading the world");
+		}
+	}
+
+	private static void assertTrust(ClientGameTestContext context, TestServerContext server, int expected, String when) {
+		int onServer = server.computeOnServer(minecraftServer -> Disposition.trust(minecraftServer.getPlayerList().getPlayers().get(0)));
+		int onClient = context.computeOnClient(client -> Disposition.trust(client.player));
+		LOGGER.info("Trust {}: server {}, client {}", when, onServer, onClient);
+		if (onServer != expected || onClient != expected) {
+			throw new AssertionError("trust " + when + " should be " + expected + ", server has " + onServer + ", client has " + onClient);
 		}
 	}
 

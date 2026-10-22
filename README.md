@@ -26,6 +26,8 @@ Each step is a heavy thud: the ground shakes the camera (less the farther you ar
 
 Right-click her with an empty hand to climb onto her shoulder; a second player can take the other one. You stay aboard as she walks and turns, and nothing she walks through can suffocate you. Sneak to climb down: you are set on the ground beside her, never dropped. If she dies, riders are set down the same way.
 
+Giantesses remember how you treat them: every player has one trust value, shared by all giantesses and kept across deaths and relogs. It starts at 0 (neutral). Gifts raise it (right-click her holding an item from the `giantess:gifts` item tag: flowers, cake, cookies, pie, berries, honey, golden apples), and so does killing a monster near a villager while a giantess is close enough to see it. Hitting her lowers it. A message tells you when her mood towards you changes; while she is hostile she won't let you climb up. Operators can check or change trust with `/giantess trust <players> [set|add <value>]`.
+
 ## Config
 
 Settings live in `config/giantess.json`, created with defaults on first launch and read at startup (restart after editing; invalid values are clamped with a log warning).
@@ -58,4 +60,10 @@ Settings live in `config/giantess.json`, created with defaults on first launch a
 | `climbing.seatHeightPerScale` / `seatSidePerScale` | `1.5` / `0.375` | Where the shoulder seat is, per unit of her scale: height above her feet and distance from her centre line |
 | `climbing.turnRidersWithHer` | `true` | Riders' view turns along with her |
 | `climbing.riderShakeMultiplier` | `0.5` | Client: multiplier on footstep shake while riding her |
+| `disposition.maxTrust` | `100` | Trust runs from minus this to plus this |
+| `disposition.friendlyAt` / `hostileAt` | `30` / `-30` | Trust at or past which she is friendly / hostile towards a player |
+| `disposition.giftTrust` / `giftCooldownTicks` | `10` / `100` | Trust per gift, and ticks before she accepts the next gift from the same player |
+| `disposition.protectTrust` | `5` | Trust for killing a monster near a villager while she can see it |
+| `disposition.protectVillagerRadius` / `witnessRadius` | `16` / `64` | Blocks from the monster within which a villager counts as protected / a giantess sees it |
+| `disposition.attackTrust` | `15` | Trust lost per hit on her |
 | `debugLogging` | `false` | Extra diagnostic logging |

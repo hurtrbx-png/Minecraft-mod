@@ -36,6 +36,8 @@ public final class GiantessConfig {
 	public Footsteps footsteps = new Footsteps();
 
 	public Climbing climbing = new Climbing();
+	/** Server: how giantesses feel about each player (trust from -maxTrust to maxTrust, starting at 0). */
+	public Disposition disposition = new Disposition();
 	/** How far away, in chunks, players receive her; the server view distance still caps it. */
 	public int trackingRangeChunks = 16;
 
@@ -124,6 +126,27 @@ public final class GiantessConfig {
 		public double riderShakeMultiplier = 0.5;
 	}
 
+	public static class Disposition {
+		/** Largest trust a player can reach either way. */
+		public int maxTrust = 100;
+		/** At or above this trust she is friendly towards the player. */
+		public int friendlyAt = 30;
+		/** At or below this trust she is hostile towards the player (who then cannot climb her). */
+		public int hostileAt = -30;
+		/** Trust gained per gift (right-click her holding an item from the giantess:gifts item tag). */
+		public int giftTrust = 10;
+		/** Ticks after a gift before she accepts another from the same player. */
+		public int giftCooldownTicks = 100;
+		/** Trust gained for killing a monster near a villager while a giantess is near enough to see it. */
+		public int protectTrust = 5;
+		/** A villager this many blocks from the monster counts as protected. */
+		public double protectVillagerRadius = 16.0;
+		/** A giantess this many blocks from the monster sees it happen. */
+		public double witnessRadius = 64.0;
+		/** Trust lost each time the player hurts her. */
+		public int attackTrust = 15;
+	}
+
 	public static GiantessConfig get() {
 		return instance;
 	}
@@ -200,6 +223,19 @@ public final class GiantessConfig {
 		c.seatHeightPerScale = clamp("climbing.seatHeightPerScale", c.seatHeightPerScale, 0.0, 2.5);
 		c.seatSidePerScale = clamp("climbing.seatSidePerScale", c.seatSidePerScale, 0.0, 1.0);
 		c.riderShakeMultiplier = clamp("climbing.riderShakeMultiplier", c.riderShakeMultiplier, 0.0, 1.0);
+		if (disposition == null) {
+			disposition = new Disposition();
+		}
+		Disposition d = disposition;
+		d.maxTrust = (int) clamp("disposition.maxTrust", d.maxTrust, 1, 10000);
+		d.friendlyAt = (int) clamp("disposition.friendlyAt", d.friendlyAt, 1, d.maxTrust);
+		d.hostileAt = (int) clamp("disposition.hostileAt", d.hostileAt, -d.maxTrust, -1);
+		d.giftTrust = (int) clamp("disposition.giftTrust", d.giftTrust, 0, d.maxTrust);
+		d.giftCooldownTicks = (int) clamp("disposition.giftCooldownTicks", d.giftCooldownTicks, 0, 24000);
+		d.protectTrust = (int) clamp("disposition.protectTrust", d.protectTrust, 0, d.maxTrust);
+		d.protectVillagerRadius = clamp("disposition.protectVillagerRadius", d.protectVillagerRadius, 0.0, 64.0);
+		d.witnessRadius = clamp("disposition.witnessRadius", d.witnessRadius, 0.0, 256.0);
+		d.attackTrust = (int) clamp("disposition.attackTrust", d.attackTrust, 0, d.maxTrust);
 	}
 
 	private static float clamp(String key, float value, float min, float max) {

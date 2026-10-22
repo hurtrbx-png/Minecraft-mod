@@ -1,15 +1,19 @@
 package io.github.hurtrbxpng.giantess.entity;
 
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
+import io.github.hurtrbxpng.giantess.disposition.Disposition;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessMoveControl;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessNavigation;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessWanderGoal;
 import io.github.hurtrbxpng.giantess.registry.ModTags;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
 import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -28,6 +32,7 @@ import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.DismountHelper;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
@@ -56,6 +61,8 @@ public class GiantessEntity extends PathfinderMob {
 	/** Entity events carrying a footfall to the clients: the foot that came down is the left or the right one. */
 	public static final byte EVENT_STEP_LEFT = 100;
 	public static final byte EVENT_STEP_RIGHT = 101;
+	public static final byte EVENT_GIFT_ACCEPTED = 102;
+	private static final int GIFT_HEARTS = 7;
 
 	/** Client-side hook for footstep effects; the client sets it, a dedicated server never does. */
 	@FunctionalInterface
@@ -173,6 +180,11 @@ public class GiantessEntity extends PathfinderMob {
 	public void handleEntityEvent(byte id) {
 		if (id == EVENT_STEP_LEFT || id == EVENT_STEP_RIGHT) {
 			footstepListener.onFootstep(this, id == EVENT_STEP_RIGHT);
+		} else if (id == EVENT_GIFT_ACCEPTED) {
+			for (int i = 0; i < GIFT_HEARTS; i++) {
+				level().addParticle(ParticleTypes.HEART, getRandomX(0.5), getEyeY() + random.nextDouble(), getRandomZ(0.5),
+					random.nextGaussian() * 0.02, random.nextGaussian() * 0.02, random.nextGaussian() * 0.02);
+			}
 		} else {
 			super.handleEntityEvent(id);
 		}
@@ -197,13 +209,30 @@ public class GiantessEntity extends PathfinderMob {
 		super.checkFallDamage(ya, onGround, Blocks.AIR.defaultBlockState(), pos);
 	}
 
-	/** An empty hand lifts the player onto a free shoulder; sneaking (vanilla) gets them down again. */
+	/**
+	 * A gift (giantess:gifts item tag) raises the giver's trust. An empty hand lifts the player onto a free
+	 * shoulder unless she is hostile towards them; sneaking (vanilla) gets them down again.
+	 */
 	@Override
 	protected InteractionResult mobInteract(Player player, InteractionHand hand) {
-		if (GiantessConfig.get().climbing.enabled && hand == InteractionHand.MAIN_HAND && player.getMainHandItem().isEmpty()
-			&& !player.isSecondaryUseActive() && player.getVehicle() != this && canAddPassenger(player)) {
-			if (!level().isClientSide()) {
-				player.startRiding(this);
+		if (hand != InteractionHand.MAIN_HAND || player.isSecondaryUseActive()) {
+			return super.mobInteract(player, hand);
+		}
+		ItemStack held = player.getMainHandItem();
+		if (held.is(ModTags.GIANTESS_GIFTS)) {
+			if (player instanceof ServerPlayer serverPlayer && Disposition.tryGift(serverPlayer)) {
+				held.consume(1, player);
+				level().broadcastEntityEvent(this, EVENT_GIFT_ACCEPTED);
+			}
+			return InteractionResult.SUCCESS;
+		}
+		if (GiantessConfig.get().climbing.enabled && held.isEmpty() && player.getVehicle() != this && canAddPassenger(player)) {
+			if (player instanceof ServerPlayer serverPlayer) {
+				if (Disposition.mood(serverPlayer) == Disposition.Mood.HOSTILE) {
+					serverPlayer.sendOverlayMessage(Component.translatable("giantess.climb.refused"));
+				} else {
+					serverPlayer.startRiding(this);
+				}
 			}
 			return InteractionResult.SUCCESS;
 		}
@@ -340,6 +369,16 @@ public class GiantessEntity extends PathfinderMob {
 	@Override
 	public boolean isPushable() {
 		return false;
+	}
+
+	/** Every hit from a player, or from their arrow, costs that player some of her trust. */
+	@Override
+	public boolean hurtServer(ServerLevel level, DamageSource source, float damage) {
+		boolean hurt = super.hurtServer(level, source, damage);
+		if (hurt && source.getEntity() instanceof ServerPlayer player) {
+			Disposition.changeTrust(player, -GiantessConfig.get().disposition.attackTrust);
+		}
+		return hurt;
 	}
 
 	@Override
