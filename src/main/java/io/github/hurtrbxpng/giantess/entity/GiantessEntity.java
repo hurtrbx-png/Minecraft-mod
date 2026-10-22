@@ -6,6 +6,9 @@ import io.github.hurtrbxpng.giantess.entity.ai.GiantessNavigation;
 import io.github.hurtrbxpng.giantess.entity.ai.GiantessWanderGoal;
 import io.github.hurtrbxpng.giantess.registry.ModTags;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.syncher.EntityDataAccessor;
+import net.minecraft.network.syncher.EntityDataSerializers;
+import net.minecraft.network.syncher.SynchedEntityData;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
@@ -43,6 +46,13 @@ public class GiantessEntity extends PathfinderMob {
 	/** How far below her feet a dismounting rider may be set down, for a slope falling away beside her. */
 	private static final int DISMOUNT_SEARCH_DEPTH = 8;
 
+	/**
+	 * Network id of the rider on her left shoulder; every other rider sits on the right. Synced so that a rider
+	 * keeps their shoulder when the other one climbs down, instead of following the passenger list order.
+	 */
+	private static final EntityDataAccessor<Integer> DATA_LEFT_RIDER = SynchedEntityData.defineId(GiantessEntity.class, EntityDataSerializers.INT);
+	private static final int NO_RIDER = -1;
+
 	/** Entity events carrying a footfall to the clients: the foot that came down is the left or the right one. */
 	public static final byte EVENT_STEP_LEFT = 100;
 	public static final byte EVENT_STEP_RIGHT = 101;
@@ -72,6 +82,12 @@ public class GiantessEntity extends PathfinderMob {
 		moveControl = new GiantessMoveControl(this);
 		// The scale comes from the default attribute supplier, which does not trigger a dimension refresh by itself.
 		refreshDimensions();
+	}
+
+	@Override
+	protected void defineSynchedData(SynchedEntityData.Builder builder) {
+		super.defineSynchedData(builder);
+		builder.define(DATA_LEFT_RIDER, NO_RIDER);
 	}
 
 	public static AttributeSupplier.Builder createAttributes() {
@@ -199,11 +215,25 @@ public class GiantessEntity extends PathfinderMob {
 		return getPassengers().size() < GiantessConfig.get().climbing.seats;
 	}
 
-	/** First rider on the left shoulder, second on the right; the seats follow her body as she turns. */
+	/** A new rider takes the left shoulder when it is free, else the right. */
+	@Override
+	protected void addPassenger(Entity passenger) {
+		super.addPassenger(passenger);
+		int left = entityData.get(DATA_LEFT_RIDER);
+		if (!level().isClientSide() && getPassengers().stream().noneMatch(rider -> rider.getId() == left)) {
+			entityData.set(DATA_LEFT_RIDER, passenger.getId());
+		}
+	}
+
+	public boolean isOnLeftShoulder(Entity passenger) {
+		return passenger.getId() == entityData.get(DATA_LEFT_RIDER);
+	}
+
+	/** The seats follow her body as she turns. */
 	@Override
 	protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions, float scale) {
 		GiantessConfig.Climbing config = GiantessConfig.get().climbing;
-		double side = (getPassengers().indexOf(passenger) == 1 ? -1 : 1) * config.seatSidePerScale * scale;
+		double side = (isOnLeftShoulder(passenger) ? 1 : -1) * config.seatSidePerScale * scale;
 		return new Vec3(side, config.seatHeightPerScale * scale, 0.0).yRot(-yBodyRot * Mth.DEG_TO_RAD);
 	}
 
@@ -255,6 +285,9 @@ public class GiantessEntity extends PathfinderMob {
 	protected void removePassenger(Entity passenger) {
 		super.removePassenger(passenger);
 		passenger.resetFallDistance();
+		if (!level().isClientSide() && isOnLeftShoulder(passenger)) {
+			entityData.set(DATA_LEFT_RIDER, NO_RIDER);
+		}
 	}
 
 	/** Riders climb down safely before she dies or is removed, instead of falling from her shoulders. */

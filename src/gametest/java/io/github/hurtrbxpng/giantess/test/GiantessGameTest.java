@@ -284,6 +284,16 @@ public class GiantessGameTest {
 			DamageSource inWall = level.damageSources().inWall();
 			context.assertFalse(GiantessEntity.allowRiderDamage(first, inWall, 4.0F), "riders must not suffocate in what she walks through");
 			context.assertTrue(GiantessEntity.allowRiderDamage(third, inWall, 4.0F), "players on foot still can");
+
+			// Seats are stable: when the left rider climbs down, the right one stays put and a newcomer gets the left.
+			giantess.setYBodyRot(0.0F);
+			giantess.yBodyRotO = 0.0F;
+			first.stopRiding();
+			giantess.positionRider(second);
+			context.assertTrue(Math.abs(second.getX() - giantess.getX() + side) < 0.01, "the right rider should keep their shoulder");
+			context.assertTrue(board(third, giantess), "the free left shoulder should take a new rider");
+			giantess.positionRider(third);
+			context.assertTrue(Math.abs(third.getX() - giantess.getX() - side) < 0.01, "a newcomer should get the free left shoulder");
 			context.succeed();
 		});
 	}
