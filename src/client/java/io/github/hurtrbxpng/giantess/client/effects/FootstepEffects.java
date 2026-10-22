@@ -50,6 +50,9 @@ public final class FootstepEffects {
 			if (range > 0.0 && distance < range) {
 				float falloff = (float) (1.0 - distance / range);
 				float strength = (float) config.shakeStrength * Math.min(1.0F, scale / FULL_STRENGTH_SCALE) * falloff * falloff;
+				if (viewer.getVehicle() == giantess) {
+					strength *= (float) GiantessConfig.get().climbing.riderShakeMultiplier;
+				}
 				CameraShake.addTrauma(config.reduceShake ? strength * 0.25F : strength);
 			}
 		}

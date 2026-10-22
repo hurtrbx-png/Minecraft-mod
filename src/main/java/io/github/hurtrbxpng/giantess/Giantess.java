@@ -1,8 +1,10 @@
 package io.github.hurtrbxpng.giantess;
 
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
+import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import io.github.hurtrbxpng.giantess.registry.ModRegistries;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -20,6 +22,8 @@ public class Giantess implements ModInitializer {
 		// Config first: registration reads tunable values from it.
 		GiantessConfig.load();
 		ModRegistries.init();
+		// Her shoulders pass through tree trunks and overhangs she walks under; riders must not suffocate there.
+		ServerLivingEntityEvents.ALLOW_DAMAGE.register(GiantessEntity::allowRiderDamage);
 		LOGGER.info("Giantess initialised");
 	}
 }

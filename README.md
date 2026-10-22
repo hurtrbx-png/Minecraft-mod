@@ -24,6 +24,8 @@ She strolls slowly between pauses and looks at nearby players. Her step height g
 
 Each step is a heavy thud: the ground shakes the camera (less the farther you are), block dust and leaves fly up from her foot, and the step sound is the block's own pitched down. Nothing is damaged: she does not trample farmland or crush turtle eggs.
 
+Right-click her with an empty hand to climb onto her shoulder; a second player can take the other one. You stay aboard as she walks and turns, and nothing she walks through can suffocate you. Sneak to climb down: you are set on the ground beside her, never dropped. If she dies, riders are set down the same way.
+
 ## Config
 
 Settings live in `config/giantess.json`, created with defaults on first launch and read at startup (restart after editing; invalid values are clamped with a log warning).
@@ -51,4 +53,9 @@ Settings live in `config/giantess.json`, created with defaults on first launch a
 | `footsteps.soundVolume` / `soundPitch` | `4.0` / `0.5` | Client: step sound volume (hearing distance is 16 blocks times this) and pitch (0.5 to 2.0) |
 | `footsteps.particleCount` | `24` | Client: block particles per step (the game's particle setting thins them further; `0` for none) |
 | `footsteps.particleRangePerScale` | `8.0` | Client: no step particles beyond this many blocks per unit of scale |
+| `climbing.enabled` | `true` | Right-click her with an empty hand to climb onto a shoulder; sneak to climb down |
+| `climbing.seats` | `2` | Riders at once, one per shoulder (1 or 2) |
+| `climbing.seatHeightPerScale` / `seatSidePerScale` | `1.5` / `0.375` | Where the shoulder seat is, per unit of her scale: height above her feet and distance from her centre line |
+| `climbing.turnRidersWithHer` | `true` | Riders' view turns along with her |
+| `climbing.riderShakeMultiplier` | `0.5` | Client: multiplier on footstep shake while riding her |
 | `debugLogging` | `false` | Extra diagnostic logging |

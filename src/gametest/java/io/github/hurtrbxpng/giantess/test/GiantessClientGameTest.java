@@ -4,13 +4,29 @@ import io.github.hurtrbxpng.giantess.client.effects.CameraShake;
 import io.github.hurtrbxpng.giantess.config.GiantessConfig;
 import io.github.hurtrbxpng.giantess.entity.GiantessEntity;
 import io.github.hurtrbxpng.giantess.entity.ai.Footing;
+import com.mojang.authlib.GameProfile;
+import io.netty.channel.embedded.EmbeddedChannel;
 import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
+import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerConnection;
+import net.fabricmc.fabric.api.client.gametest.v1.context.TestDedicatedServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.fabricmc.fabric.api.client.gametest.v1.world.TestWorldSave;
+import net.minecraft.client.CameraType;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.CommonListenerCookie;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
@@ -18,7 +34,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Properties;
+import java.util.UUID;
+import java.util.function.Predicate;
 
 public class GiantessClientGameTest implements FabricClientGameTest {
 	private static final Logger LOGGER = LoggerFactory.getLogger("giantess-test");
@@ -29,12 +50,17 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	/** She pauses up to idleMaxTicks between strolls; standing still much longer than that means she is stuck. */
 	private static final int MAX_STILL_TICKS = 1200;
 	private static final double MIN_TRAVEL = 60.0;
+	private static final int RIDE_TICKS = 1200;
+	private static final double MIN_RIDE_TRAVEL = 8.0;
+	private static final int RIDE_TOGETHER_TICKS = 600;
 	private static final int[][] SOAK_OFFSETS = {{0, 0}, {48, 32}, {-40, -48}};
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
 		checkSummonAndLooks(context);
 		checkFootstepShake(context);
+		checkRiding(context);
+		checkRidingTogether(context);
 		soakInGeneratedTerrain(context);
 	}
 
@@ -119,6 +145,193 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			throw new AssertionError("the giantess never took a step, so the shake check would prove nothing");
 		}
 		return peak;
+	}
+
+	/**
+	 * M5 done-criterion in singleplayer: board her, ride a full minute while she wanders, sneak off unhurt.
+	 * Then quit while riding: on reload the player stands beside her, and she is still in the world.
+	 */
+	private static void checkRiding(ClientGameTestContext context) {
+		TestSingleplayerContext singleplayer = context.worldBuilder().create();
+		TestWorldSave save = singleplayer.getWorldSave();
+		try {
+			singleplayer.getConnection().waitForChunksRender();
+			TestServerContext server = singleplayer.getServer();
+			server.runCommand("gamemode survival @p");
+			server.runCommand("forceload add -64 -64 64 64");
+			server.runCommand("execute at @p run summon giantess:giantess ~ ~ ~6");
+			context.waitTicks(40);
+			if (!board(server, player -> true)) {
+				throw new AssertionError("right-clicking her with an empty hand should put the player on her shoulder");
+			}
+
+			Vec3 start = soakPositions(server).get(0);
+			double travelled = 0.0;
+			Vec3 last = start;
+			for (int tick = 0; tick < RIDE_TICKS; tick += 20) {
+				context.waitTicks(20);
+				boolean riding = context.computeOnClient(client -> client.player.getVehicle() instanceof GiantessEntity);
+				if (!riding) {
+					throw new AssertionError("the player fell off after " + tick + " ticks");
+				}
+				Vec3 now = soakPositions(server).get(0);
+				travelled += now.distanceTo(last);
+				last = now;
+				if (tick == 200) {
+					context.takeScreenshot("m5-riding");
+				}
+			}
+			LOGGER.info("Rode for {} ticks while she walked {} blocks", RIDE_TICKS, travelled);
+			if (travelled < MIN_RIDE_TRAVEL) {
+				throw new AssertionError("she should have walked with the rider aboard, moved only " + travelled);
+			}
+
+			context.getInput().holdKeyFor(options -> options.keyShift, 5);
+			context.waitTicks(40);
+			context.takeScreenshot("m5-dismounted");
+			assertStandingBesideHer(context, "sneaking off");
+
+			// Boarding has a 3-second cooldown after getting down.
+			context.waitTicks(70);
+			if (!board(server, player -> true)) {
+				throw new AssertionError("the player should be able to board again");
+			}
+			context.waitTicks(20);
+		} finally {
+			singleplayer.close();
+		}
+		try (TestSingleplayerContext reopened = save.open()) {
+			reopened.getConnection().waitForChunksRender();
+			context.waitTicks(40);
+			assertStandingBesideHer(context, "reloading a world quit while riding");
+		}
+	}
+
+	/**
+	 * Two players ride her together on a dedicated server: this client and a server-side stand-in with its own
+	 * connection. Checks the seats as this client sees them, stable seats when one gets down, and that a rider
+	 * logging out leaves her in the world and comes back on the ground beside her.
+	 */
+	private static void checkRidingTogether(ClientGameTestContext context) {
+		Properties properties = new Properties();
+		properties.setProperty("level-type", "minecraft:flat");
+		// The test server allows one player by default; the stand-in takes a slot.
+		properties.setProperty("max-players", "4");
+		try (TestDedicatedServerContext server = context.worldBuilder().createServer(properties)) {
+			try (TestDedicatedServerConnection connection = server.connect()) {
+				connection.waitForChunksRender();
+				server.runCommand("forceload add -64 -64 64 64");
+				server.runCommand("execute at @a[limit=1] run summon giantess:giantess ~ ~ ~6");
+				context.waitTicks(40);
+				server.runOnServer(minecraftServer -> addStandIn(minecraftServer));
+				if (!board(server, player -> player.getPlainTextName().equals(STAND_IN)) || !board(server, player -> !player.getPlainTextName().equals(STAND_IN))) {
+					throw new AssertionError("both players should board");
+				}
+				for (int tick = 0; tick < RIDE_TOGETHER_TICKS; tick += 20) {
+					context.waitTicks(20);
+					double[] sides = context.computeOnClient(GiantessClientGameTest::riderSidesSeenByClient);
+					double seat = GiantessConfig.get().climbing.seatSidePerScale * GiantessConfig.get().size.scale();
+					if (sides.length != 2 || Math.abs(sides[0] - seat) > 0.5 || Math.abs(sides[1] + seat) > 0.5) {
+						throw new AssertionError("expected the stand-in on her left (+" + seat + ") and this player on her right, got "
+							+ Arrays.toString(sides) + " after " + tick + " ticks");
+					}
+					if (tick == 200) {
+						context.runOnClient(client -> client.options.setCameraType(CameraType.THIRD_PERSON_BACK));
+						context.waitTicks(2);
+						context.takeScreenshot("m5-two-riders");
+						context.runOnClient(client -> client.options.setCameraType(CameraType.FIRST_PERSON));
+					}
+				}
+
+				server.runOnServer(minecraftServer -> standIn(minecraftServer).stopRiding());
+				context.waitTicks(20);
+				double[] sides = context.computeOnClient(GiantessClientGameTest::riderSidesSeenByClient);
+				if (sides.length != 1 || sides[0] > 0.0) {
+					throw new AssertionError("this player should keep the right shoulder when the other gets down, got " + Arrays.toString(sides));
+				}
+				String standIn = server.computeOnServer(minecraftServer -> {
+					ServerPlayer player = standIn(minecraftServer);
+					return player.onGround() + " dy=" + (player.getY() - soakGiantesses(minecraftServer.overworld()).get(0).getY());
+				});
+				LOGGER.info("Stand-in after getting down: onGround {}", standIn);
+			}
+			// The connection is closed while this player still rides her.
+			context.waitTicks(20);
+			int left = server.computeOnServer(minecraftServer -> soakGiantesses(minecraftServer.overworld()).size());
+			if (left != 1) {
+				throw new AssertionError("she should stay in the world when a rider logs out, found " + left);
+			}
+			try (TestDedicatedServerConnection connection = server.connect()) {
+				connection.waitForChunksRender();
+				context.waitTicks(40);
+				assertStandingBesideHer(context, "logging back in after leaving while riding");
+			}
+			server.runOnServer(minecraftServer -> minecraftServer.getPlayerList().remove(standIn(minecraftServer)));
+		}
+	}
+
+	private static final String STAND_IN = "stand-in";
+
+	/** A second player with its own (in-memory) connection, so the server treats it as a real client. */
+	private static void addStandIn(MinecraftServer server) {
+		CommonListenerCookie cookie = CommonListenerCookie.createInitial(new GameProfile(UUID.randomUUID(), STAND_IN), false);
+		ServerPlayer player = new ServerPlayer(server, server.overworld(), cookie.gameProfile(), cookie.clientInformation());
+		Connection connection = new Connection(PacketFlow.SERVERBOUND);
+		new EmbeddedChannel(connection);
+		server.getPlayerList().placeNewPlayer(connection, player, cookie);
+	}
+
+	private static ServerPlayer standIn(MinecraftServer server) {
+		return server.getPlayerList().getPlayers().stream().filter(player -> player.getPlainTextName().equals(STAND_IN)).findFirst().orElseThrow();
+	}
+
+	/** Boards the first matching player onto the first giantess the way a right-click does; true if they are aboard. */
+	private static boolean board(TestServerContext server, Predicate<ServerPlayer> which) {
+		return server.computeOnServer(minecraftServer -> {
+			ServerPlayer player = minecraftServer.getPlayerList().getPlayers().stream().filter(which).findFirst().orElseThrow();
+			GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+			giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+			return player.getVehicle() == giantess;
+		});
+	}
+
+	/** Each rider's offset to her left as this client renders it; the other player first, this player last. */
+	private static double[] riderSidesSeenByClient(Minecraft client) {
+		GiantessEntity giantess = clientGiantesses(client).get(0);
+		float left = (giantess.yBodyRot - 90.0F) * Mth.DEG_TO_RAD;
+		return giantess.getPassengers().stream()
+			.sorted(Comparator.comparing(rider -> rider == client.player))
+			.mapToDouble(rider -> (rider.getX() - giantess.getX()) * -Mth.sin(left) + (rider.getZ() - giantess.getZ()) * Mth.cos(left))
+			.toArray();
+	}
+
+	private static void assertStandingBesideHer(ClientGameTestContext context, String after) {
+		String state = context.computeOnClient(client -> {
+			LocalPlayer player = client.player;
+			List<GiantessEntity> giantesses = clientGiantesses(client);
+			return "passenger=" + player.isPassenger() + " onGround=" + player.onGround() + " health=" + player.getHealth() + "/" + player.getMaxHealth()
+				+ " giantesses=" + giantesses.size() + (giantesses.isEmpty() ? "" : " dy=" + (player.getY() - giantesses.get(0).getY()));
+		});
+		LOGGER.info("After {}: {}", after, state);
+		boolean safe = context.computeOnClient(client -> {
+			LocalPlayer player = client.player;
+			List<GiantessEntity> giantesses = clientGiantesses(client);
+			return !player.isPassenger() && player.onGround() && player.getHealth() == player.getMaxHealth()
+				&& giantesses.size() == 1 && Math.abs(player.getY() - giantesses.get(0).getY()) < 2.0;
+		});
+		if (!safe) {
+			throw new AssertionError(after + " should leave the player standing unhurt beside her: " + state);
+		}
+	}
+
+	private static List<GiantessEntity> clientGiantesses(Minecraft client) {
+		List<GiantessEntity> found = new ArrayList<>();
+		for (Entity entity : client.level.entitiesForRendering()) {
+			if (entity instanceof GiantessEntity giantess) {
+				found.add(giantess);
+			}
+		}
+		return found;
 	}
 
 	/**
