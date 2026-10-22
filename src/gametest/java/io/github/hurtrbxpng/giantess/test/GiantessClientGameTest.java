@@ -8,9 +8,14 @@ import net.fabricmc.fabric.api.client.gametest.v1.FabricClientGameTest;
 import net.fabricmc.fabric.api.client.gametest.v1.context.ClientGameTestContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestServerContext;
 import net.fabricmc.fabric.api.client.gametest.v1.context.TestSingleplayerContext;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.FluidTags;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.entity.EntityTypeTest;
 import net.minecraft.world.level.levelgen.Heightmap;
 import net.minecraft.world.phys.Vec3;
@@ -29,12 +34,15 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 	/** She pauses up to idleMaxTicks between strolls; standing still much longer than that means she is stuck. */
 	private static final int MAX_STILL_TICKS = 1200;
 	private static final double MIN_TRAVEL = 60.0;
+	private static final int RIDE_TICKS = 1200;
+	private static final double MIN_RIDE_TRAVEL = 8.0;
 	private static final int[][] SOAK_OFFSETS = {{0, 0}, {48, 32}, {-40, -48}};
 
 	@Override
 	public void runTest(ClientGameTestContext context) {
 		checkSummonAndLooks(context);
 		checkFootstepShake(context);
+		checkRiding(context);
 		soakInGeneratedTerrain(context);
 	}
 
@@ -119,6 +127,77 @@ public class GiantessClientGameTest implements FabricClientGameTest {
 			throw new AssertionError("the giantess never took a step, so the shake check would prove nothing");
 		}
 		return peak;
+	}
+
+	/** M5 done-criterion in singleplayer: board her, ride a full minute while she wanders, sneak off unhurt. */
+	private static void checkRiding(ClientGameTestContext context) {
+		try (TestSingleplayerContext singleplayer = context.worldBuilder().create()) {
+			singleplayer.getConnection().waitForChunksRender();
+			TestServerContext server = singleplayer.getServer();
+			server.runCommand("gamemode survival @p");
+			server.runCommand("forceload add -64 -64 64 64");
+			server.runCommand("execute at @p run summon giantess:giantess ~ ~ ~6");
+			context.waitTicks(40);
+			boolean boarded = server.computeOnServer(minecraftServer -> {
+				ServerPlayer player = minecraftServer.getPlayerList().getPlayers().get(0);
+				GiantessEntity giantess = soakGiantesses(minecraftServer.overworld()).get(0);
+				giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position());
+				return player.getVehicle() == giantess;
+			});
+			if (!boarded) {
+				throw new AssertionError("right-clicking her with an empty hand should put the player on her shoulder");
+			}
+
+			Vec3 start = soakPositions(server).get(0);
+			double travelled = 0.0;
+			Vec3 last = start;
+			for (int tick = 0; tick < RIDE_TICKS; tick += 20) {
+				context.waitTicks(20);
+				boolean riding = context.computeOnClient(client -> client.player.getVehicle() instanceof GiantessEntity);
+				if (!riding) {
+					throw new AssertionError("the player fell off after " + tick + " ticks");
+				}
+				Vec3 now = soakPositions(server).get(0);
+				travelled += now.distanceTo(last);
+				last = now;
+				if (tick == 200) {
+					context.takeScreenshot("m5-riding");
+				}
+			}
+			LOGGER.info("Rode for {} ticks while she walked {} blocks", RIDE_TICKS, travelled);
+			if (travelled < MIN_RIDE_TRAVEL) {
+				throw new AssertionError("she should have walked with the rider aboard, moved only " + travelled);
+			}
+
+			context.getInput().holdKeyFor(options -> options.keyShift, 5);
+			context.waitTicks(40);
+			String state = context.computeOnClient(client -> {
+				LocalPlayer player = client.player;
+				Vec3 her = clientGiantesses(client).get(0).position();
+				return player.isPassenger() + " " + player.onGround() + " " + player.getHealth() + "/" + player.getMaxHealth()
+					+ " dy=" + (player.getY() - her.y);
+			});
+			LOGGER.info("After sneaking off: passenger, onGround, health, dy = {}", state);
+			context.takeScreenshot("m5-dismounted");
+			boolean safe = context.computeOnClient(client -> {
+				LocalPlayer player = client.player;
+				double dy = Math.abs(player.getY() - clientGiantesses(client).get(0).getY());
+				return !player.isPassenger() && player.onGround() && player.getHealth() == player.getMaxHealth() && dy < 2.0;
+			});
+			if (!safe) {
+				throw new AssertionError("sneaking should set the player down unhurt beside her: " + state);
+			}
+		}
+	}
+
+	private static List<GiantessEntity> clientGiantesses(Minecraft client) {
+		List<GiantessEntity> found = new ArrayList<>();
+		for (Entity entity : client.level.entitiesForRendering()) {
+			if (entity instanceof GiantessEntity giantess) {
+				found.add(giantess);
+			}
+		}
+		return found;
 	}
 
 	/**

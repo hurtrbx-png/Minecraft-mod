@@ -8,8 +8,14 @@ import io.github.hurtrbxpng.giantess.registry.ModTags;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.Mth;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.PathfinderMob;
 import net.minecraft.world.entity.ai.attributes.AttributeSupplier;
@@ -18,9 +24,12 @@ import net.minecraft.world.entity.ai.goal.LookAtPlayerGoal;
 import net.minecraft.world.entity.ai.goal.RandomLookAroundGoal;
 import net.minecraft.world.entity.ai.navigation.PathNavigation;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.vehicle.DismountHelper;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import org.jspecify.annotations.Nullable;
 
 /**
  * The giant. Her size comes from the vanilla scale attribute, so the hitbox, eye height and
@@ -30,6 +39,9 @@ import net.minecraft.world.level.block.state.BlockState;
 public class GiantessEntity extends PathfinderMob {
 	/** Vanilla caps the step height attribute at 10 blocks; the same cap applies here. */
 	private static final float MAX_STEP_HEIGHT = 10.0F;
+
+	/** How far below her feet a dismounting rider may be set down, for a slope falling away beside her. */
+	private static final int DISMOUNT_SEARCH_DEPTH = 8;
 
 	/** Entity events carrying a footfall to the clients: the foot that came down is the left or the right one. */
 	public static final byte EVENT_STEP_LEFT = 100;
@@ -167,6 +179,108 @@ public class GiantessEntity extends PathfinderMob {
 	@Override
 	protected void checkFallDamage(double ya, boolean onGround, BlockState onState, BlockPos pos) {
 		super.checkFallDamage(ya, onGround, Blocks.AIR.defaultBlockState(), pos);
+	}
+
+	/** An empty hand lifts the player onto a free shoulder; sneaking (vanilla) gets them down again. */
+	@Override
+	protected InteractionResult mobInteract(Player player, InteractionHand hand) {
+		if (GiantessConfig.get().climbing.enabled && hand == InteractionHand.MAIN_HAND && player.getMainHandItem().isEmpty()
+			&& !player.isSecondaryUseActive() && player.getVehicle() != this && canAddPassenger(player)) {
+			if (!level().isClientSide()) {
+				player.startRiding(this);
+			}
+			return InteractionResult.SUCCESS;
+		}
+		return super.mobInteract(player, hand);
+	}
+
+	@Override
+	protected boolean canAddPassenger(Entity passenger) {
+		return getPassengers().size() < GiantessConfig.get().climbing.seats;
+	}
+
+	/** First rider on the left shoulder, second on the right; the seats follow her body as she turns. */
+	@Override
+	protected Vec3 getPassengerAttachmentPoint(Entity passenger, EntityDimensions dimensions, float scale) {
+		GiantessConfig.Climbing config = GiantessConfig.get().climbing;
+		double side = (getPassengers().indexOf(passenger) == 1 ? -1 : 1) * config.seatSidePerScale * scale;
+		return new Vec3(side, config.seatHeightPerScale * scale, 0.0).yRot(-yBodyRot * Mth.DEG_TO_RAD);
+	}
+
+	@Override
+	protected void positionRider(Entity passenger, MoveFunction moveFunction) {
+		super.positionRider(passenger, moveFunction);
+		if (GiantessConfig.get().climbing.turnRidersWithHer) {
+			float turn = Mth.wrapDegrees(yBodyRot - yBodyRotO);
+			passenger.setYRot(passenger.getYRot() + turn);
+			passenger.setYHeadRot(passenger.getYHeadRot() + turn);
+		}
+	}
+
+	/**
+	 * Riders are set down on the ground beside her, on the side they sat on first, never dropped from her shoulder.
+	 * Her own footprint, where she stands, is the last resort.
+	 */
+	@Override
+	public Vec3 getDismountLocationForPassenger(LivingEntity passenger) {
+		float left = yBodyRot - 90.0F;
+		double leftX = -Mth.sin(left * Mth.DEG_TO_RAD);
+		double leftZ = Mth.cos(left * Mth.DEG_TO_RAD);
+		boolean onLeft = (passenger.getX() - getX()) * leftX + (passenger.getZ() - getZ()) * leftZ >= 0.0;
+		float first = onLeft ? left : yBodyRot + 90.0F;
+		for (float turn : new float[] {0.0F, 180.0F, 90.0F, -90.0F}) {
+			Vec3 escape = getCollisionHorizontalEscapeVector(getBbWidth(), passenger.getBbWidth(), first + turn);
+			Vec3 spot = findDismountSpot(getX() + escape.x, getZ() + escape.z, passenger);
+			if (spot != null) {
+				return spot;
+			}
+		}
+		return position();
+	}
+
+	/** Highest safe floor in the column, from her step height above her feet down to a short drop below them. */
+	private @Nullable Vec3 findDismountSpot(double x, double z, LivingEntity passenger) {
+		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
+		for (int y = Mth.floor(getY() + maxUpStep()); y >= Mth.floor(getY()) - DISMOUNT_SEARCH_DEPTH; y--) {
+			pos.set(x, y, z);
+			Vec3 spot = DismountHelper.findSafeDismountLocation(passenger.getType(), level(), pos, true);
+			if (spot != null) {
+				return spot;
+			}
+		}
+		return null;
+	}
+
+	@Override
+	protected void removePassenger(Entity passenger) {
+		super.removePassenger(passenger);
+		passenger.resetFallDistance();
+	}
+
+	/** Riders climb down safely before she dies or is removed, instead of falling from her shoulders. */
+	@Override
+	public void die(DamageSource source) {
+		ejectPassengers();
+		super.die(source);
+	}
+
+	@Override
+	public void remove(RemovalReason reason) {
+		if (reason.shouldDestroy()) {
+			ejectPassengers();
+		}
+		super.remove(reason);
+	}
+
+	/** Her health would replace the rider's food bar; a rider is not steering her, so keep the food bar. */
+	@Override
+	public boolean showVehicleHealth() {
+		return false;
+	}
+
+	/** Server damage hook: riders are not hurt by the blocks her shoulders pass through. */
+	public static boolean allowRiderDamage(LivingEntity entity, DamageSource source, float amount) {
+		return !(source.is(DamageTypes.IN_WALL) && entity.getVehicle() instanceof GiantessEntity);
 	}
 
 	/** Her eyes sit far above the ground, so hills and tree canopies must not suffocate her. */

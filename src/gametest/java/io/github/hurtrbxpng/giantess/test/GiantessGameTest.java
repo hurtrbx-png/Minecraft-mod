@@ -14,6 +14,9 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageSources;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.attributes.RangedAttribute;
@@ -231,5 +234,86 @@ public class GiantessGameTest {
 			context.assertBlockPresent(Blocks.FARMLAND, 3, 1, 3);
 			context.succeed();
 		});
+	}
+
+	/** Spawns a scale-2 giantess, lets her land, turns her to face south (her left is +x), then runs the check. */
+	private static void withLandedGiantess(GameTestHelper context, java.util.function.Consumer<GiantessEntity> check) {
+		GiantessEntity giantess = context.spawn(ModEntities.GIANTESS, new Vec3(4.5, 2.0, 4.5));
+		giantess.getAttribute(Attributes.SCALE).setBaseValue(2.0);
+		giantess.refreshDimensions();
+		context.runAtTickTime(20, () -> {
+			context.assertTrue(giantess.onGround(), "she should have landed");
+			// No AI (also no gravity) from here, so she holds still while the test moves her riders.
+			giantess.setNoAi(true);
+			giantess.setYBodyRot(0.0F);
+			giantess.yBodyRotO = 0.0F;
+			check.accept(giantess);
+		});
+	}
+
+	private static boolean board(ServerPlayer player, GiantessEntity giantess) {
+		return giantess.interact(player, InteractionHand.MAIN_HAND, giantess.position()) == InteractionResult.SUCCESS
+			&& player.getVehicle() == giantess;
+	}
+
+	@GameTest(maxTicks = 100)
+	public void ridersSitOnHerShouldersAndTurnWithHer(GameTestHelper context) {
+		withLandedGiantess(context, giantess -> {
+			GiantessConfig.Climbing config = GiantessConfig.get().climbing;
+			double side = config.seatSidePerScale * 2.0;
+			ServerPlayer first = context.makeMockServerPlayerInLevel();
+			ServerPlayer second = context.makeMockServerPlayerInLevel();
+			ServerPlayer third = context.makeMockServerPlayerInLevel();
+			context.assertTrue(board(first, giantess), "an empty hand should lift the player onto her");
+			context.assertTrue(board(second, giantess), "a second player should get the other shoulder");
+			context.assertFalse(board(third, giantess), "only two shoulders");
+			giantess.positionRider(first);
+			giantess.positionRider(second);
+			context.assertTrue(Math.abs(first.getX() - giantess.getX() - side) < 0.01, "first rider on her left (+x), got dx=" + (first.getX() - giantess.getX()));
+			context.assertTrue(Math.abs(second.getX() - giantess.getX() + side) < 0.01, "second rider on her right (-x)");
+			context.assertTrue(first.getY() > giantess.getY() + 2.0, "rider should sit high on her, got dy=" + (first.getY() - giantess.getY()));
+
+			first.setYRot(0.0F);
+			giantess.setYBodyRot(90.0F);
+			giantess.positionRider(first);
+			context.assertTrue(Math.abs(first.getZ() - giantess.getZ() - side) < 0.01, "the seat should turn with her body");
+			context.assertTrue(Math.abs(first.getYRot() - 90.0F) < 0.01, "the rider's view should turn with her, got " + first.getYRot());
+
+			ServerLevel level = context.getLevel();
+			// Mock players are creative and immune anyway, so check the damage hook itself.
+			DamageSource inWall = level.damageSources().inWall();
+			context.assertFalse(GiantessEntity.allowRiderDamage(first, inWall, 4.0F), "riders must not suffocate in what she walks through");
+			context.assertTrue(GiantessEntity.allowRiderDamage(third, inWall, 4.0F), "players on foot still can");
+			context.succeed();
+		});
+	}
+
+	@GameTest(maxTicks = 100)
+	public void ridersClimbDownBesideHerUnhurt(GameTestHelper context) {
+		withLandedGiantess(context, giantess -> {
+			ServerPlayer rider = context.makeMockServerPlayerInLevel();
+			context.assertTrue(board(rider, giantess), "player should board");
+			giantess.positionRider(rider);
+			rider.stopRiding();
+			assertSetDownBeside(context, giantess, rider);
+
+			ServerPlayer survivor = context.makeMockServerPlayerInLevel();
+			context.assertTrue(board(survivor, giantess), "player should board again");
+			giantess.positionRider(survivor);
+			giantess.kill(context.getLevel());
+			assertSetDownBeside(context, giantess, survivor);
+			context.runAfterDelay(20, () -> {
+				context.assertTrue(rider.getHealth() == rider.getMaxHealth() && survivor.getHealth() == survivor.getMaxHealth(), "nobody should be hurt");
+				context.succeed();
+			});
+		});
+	}
+
+	private static void assertSetDownBeside(GameTestHelper context, GiantessEntity giantess, ServerPlayer rider) {
+		context.assertFalse(rider.isPassenger(), "rider should be off");
+		context.assertTrue(Math.abs(rider.getY() - giantess.getY()) < 0.01, "rider should be on her ground level, got dy=" + (rider.getY() - giantess.getY()));
+		double horizontal = Math.hypot(rider.getX() - giantess.getX(), rider.getZ() - giantess.getZ());
+		context.assertTrue(horizontal >= giantess.getBbWidth() / 2.0, "rider should be beside her, got " + horizontal);
+		context.assertTrue(rider.fallDistance == 0.0, "no fall pending");
 	}
 }

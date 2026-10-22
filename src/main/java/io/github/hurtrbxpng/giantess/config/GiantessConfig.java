@@ -34,6 +34,8 @@ public final class GiantessConfig {
 	public Movement movement = new Movement();
 	/** Footfall events and their client-side effects; see {@link Footsteps}. */
 	public Footsteps footsteps = new Footsteps();
+
+	public Climbing climbing = new Climbing();
 	/** How far away, in chunks, players receive her; the server view distance still caps it. */
 	public int trackingRangeChunks = 16;
 
@@ -107,6 +109,21 @@ public final class GiantessConfig {
 		public double particleRangePerScale = 8.0;
 	}
 
+	public static class Climbing {
+		/** Server: right-clicking her with an empty hand lifts the player onto a shoulder; sneak to get down. */
+		public boolean enabled = true;
+		/** Server: riders at once, one per shoulder (1 or 2). */
+		public int seats = 2;
+		/** Height of the shoulder seat above her feet, per unit of scale (a humanoid's shoulder is at 1.5). */
+		public double seatHeightPerScale = 1.5;
+		/** Distance of the seat from her centre line, per unit of scale (the middle of the arm is at 0.375). */
+		public double seatSidePerScale = 0.375;
+		/** Riders' view turns along with her body, as in a boat. */
+		public boolean turnRidersWithHer = true;
+		/** Client: multiplier on footstep camera shake while riding her. */
+		public double riderShakeMultiplier = 0.5;
+	}
+
 	public static GiantessConfig get() {
 		return instance;
 	}
@@ -175,6 +192,14 @@ public final class GiantessConfig {
 		f.soundPitch = clamp("footsteps.soundPitch", f.soundPitch, 0.5, 2.0);
 		f.particleCount = (int) clamp("footsteps.particleCount", f.particleCount, 0, 200);
 		f.particleRangePerScale = clamp("footsteps.particleRangePerScale", f.particleRangePerScale, 0.0, 32.0);
+		if (climbing == null) {
+			climbing = new Climbing();
+		}
+		Climbing c = climbing;
+		c.seats = (int) clamp("climbing.seats", c.seats, 1, 2);
+		c.seatHeightPerScale = clamp("climbing.seatHeightPerScale", c.seatHeightPerScale, 0.0, 2.5);
+		c.seatSidePerScale = clamp("climbing.seatSidePerScale", c.seatSidePerScale, 0.0, 1.0);
+		c.riderShakeMultiplier = clamp("climbing.riderShakeMultiplier", c.riderShakeMultiplier, 0.0, 1.0);
 	}
 
 	private static float clamp(String key, float value, float min, float max) {
