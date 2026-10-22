@@ -1,5 +1,5 @@
 # Giantess — PROGRESS
-**Status:** Plan APPROVED by user (2026-10-18). M1 and M2 done and verified; next: M3 (ask user to switch to Opus for the navigation design).
+**Status:** Plan APPROVED by user (2026-10-18). M1-M6 done and verified; next: M7a.
 **Art/audio decision:** user lets Claude generate models/textures/sounds procedurally OR source quality ones online. Only CC0/permissive licenses; log every external asset (URL, author, license) in CREDITS.md; family-friendly.
 Source of truth alongside SPEC.md. After every milestone: update done / known issues / next step, then /compact.
 
